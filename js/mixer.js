@@ -23,6 +23,9 @@
     const el = document.createElement('div');
     el.className = 'mx-strip' + (i === 0 ? ' master' : '') + (M.selected === i ? ' sel' : '');
     el.addEventListener('pointerdown', (e) => { if (M.selected !== i && !e.target.closest('input,.knob')) { M.selected = i; M.render(); } });
+    el.addEventListener('dragover', (e) => { if (BF.browser.isDrag(e)) { e.preventDefault(); el.classList.add('drop'); } });
+    el.addEventListener('dragleave', () => el.classList.remove('drop'));
+    el.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.remove('drop'); const pl = BF.browser.payload(e); if (pl && pl.kind === 'effect') BF.browser.addEffect(i, pl.plugin); });
     const num = document.createElement('div');
     num.className = 'mx-num';
     num.textContent = i === 0 ? 'M' : String(i);

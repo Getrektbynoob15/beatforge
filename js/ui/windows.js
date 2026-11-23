@@ -5,7 +5,7 @@
   const BF = window.BF;
   const W = (BF.win = { all: new Map() });
   let z = 10;
-  const KEY = 'beatforge.windows.v2';
+  const KEY = 'beatforge.windows.v3';
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { saved = {}; }
   const persist = () => {

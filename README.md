@@ -18,6 +18,9 @@ BeatForge works like a classic pattern-based DAW: you make **patterns** in the *
 arrange them in the **playlist**, and mix in the **mixer**. Everything opens as a floating window
 (drag the title bar to move, the corner to resize, double-click the title to maximise).
 
+- **Browser (F8):** docked on the left. Drum sounds, synth presets, effects and your project's patterns, channels and audio.
+  Click an item to use it, drag instruments onto the channel rack, effects onto a mixer strip, audio onto a playlist track.
+  Right-click an instrument or audio item to hear it. The hint bar in the top bar explains whatever is under the mouse.
 - **Channel rack (F6):** one row per instrument. LED = on/off, then pan, volume, mixer insert number and the name
   (click it to open the instrument). Click steps to switch them on, drag to paint, right-click to erase.
   *+ Add channel* adds Drum Kit, Forge Synth (with presets) or a Sampler. Drop audio files on the rack to make Sampler channels.
@@ -39,7 +42,7 @@ arrange them in the **playlist**, and mix in the **mixer**. Everything opens as 
 |---|---|
 | Space | Play / pause |
 | L | Pattern / Song mode |
-| F5 · F6 · F7 · F9 | Playlist · Channel rack · Piano roll · Mixer |
+| F5 · F6 · F7 · F8 · F9 | Playlist · Channel rack · Piano roll · Browser · Mixer |
 | Numpad + / − | Next / previous pattern |
 | Ctrl+N · Ctrl+O · Ctrl+S · Ctrl+Shift+S | New · Open · Save · Save as |
 | Ctrl+R | Export WAV |

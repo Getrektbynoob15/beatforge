@@ -40,7 +40,7 @@ input[type=range] { accent-color: var(--accent); }
 .transport, .winbtns, .undo { display: flex; align-items: center; gap: 6px; }
 .winbtns { margin-left: auto; }
 .field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-.pat-field select { max-width: 160px; }
+.pat-field select { max-width: 130px; }
 .time { font-variant-numeric: tabular-nums; min-width: 66px; padding: 4px 10px; background: #050608; border: 1px solid var(--line); border-radius: 6px; color: var(--accent); text-align: center; font-weight: 600; }
 .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px; cursor: pointer; white-space: nowrap; }
 .btn:hover { border-color: #3c4352; background: var(--panel-3); }
@@ -208,3 +208,24 @@ input[type=range] { accent-color: var(--accent); }
 .ed-top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .ed-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 1px 8px; }
 .ed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 14px 8px; align-items: start; }
+
+/* ---------- v2.1: docked browser, hint bar ---------- */
+.main { flex: 1; min-height: 0; display: flex; }
+.main .workspace { flex: 1; min-width: 0; }
+.browser { width: 230px; flex: 0 0 230px; display: flex; flex-direction: column; background: #12151b; border-right: 1px solid var(--line); min-height: 0; }
+.br-head { padding: 8px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+.br-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.br-head input { width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.br-list { flex: 1; overflow-y: auto; padding: 4px; }
+.br-sec { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 7px 6px 4px; cursor: pointer; }
+.br-item { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; background: none; border: 0; border-left: 3px solid var(--c, transparent); padding: 4px 8px 4px 10px; border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-item:hover { background: var(--panel-3); }
+.br-item.on { background: #22303d; color: var(--accent); }
+.br-item[draggable="true"] { cursor: grab; }
+.br-ic { width: 16px; text-align: center; flex: 0 0 16px; }
+.br-empty { color: var(--muted); font-size: 12px; padding: 2px 14px; }
+.hintbar { flex: 1 1 160px; min-width: 120px; max-width: 300px; padding: 4px 10px; background: #050608; border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mx-strip.drop { outline: 2px dashed var(--accent); }
+.topbar { gap: 8px; }
+.winbtns kbd { display: none; }
+@media (min-width: 1600px) { .winbtns kbd { display: inline; } }

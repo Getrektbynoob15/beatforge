@@ -22,11 +22,13 @@
     root.append(head, rowsEl, add);
     window.addEventListener('pointerup', () => { paint = null; });
 
-    root.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); root.classList.add('drop'); } });
+    root.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files') || BF.browser.isDrag(e)) { e.preventDefault(); root.classList.add('drop'); } });
     root.addEventListener('dragleave', () => root.classList.remove('drop'));
     root.addEventListener('drop', (e) => {
       e.preventDefault(); e.stopPropagation();
       root.classList.remove('drop');
+      const pl = BF.browser.payload(e);
+      if (pl) { if (pl.kind === 'instrument') addChannel(pl.plugin, pl.preset, pl.name); return; }
       BF.io.importToRack([...(e.dataTransfer?.files || [])]);
     });
     return root;

@@ -212,11 +212,13 @@
       lane.dataset.track = ti;
       lane.addEventListener('pointerdown', laneDown);
       lane.addEventListener('contextmenu', (e) => e.preventDefault());
-      lane.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); lane.classList.add('drop'); } });
+      lane.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files') || BF.browser.isDrag(e)) { e.preventDefault(); lane.classList.add('drop'); } });
       lane.addEventListener('dragleave', () => lane.classList.remove('drop'));
       lane.addEventListener('drop', (e) => {
         e.preventDefault(); e.stopPropagation();
         lane.classList.remove('drop');
+        const pl = BF.browser.payload(e);
+        if (pl && pl.kind === 'audio') { P.pick = { kind: 'audio', sampleId: pl.sampleId }; place(ti, Math.max(0, snap(xToBeat(e.clientX), 'floor'))); return; }
         const files = [...(e.dataTransfer?.files || [])];
         if (files.length) BF.io.importToPlaylist(files, ti, Math.max(0, snap(xToBeat(e.clientX), 'floor')));
       });
