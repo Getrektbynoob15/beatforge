@@ -135,62 +135,34 @@
     return h.getFile();
   };
 
-  /** Decode only the first `sec` seconds of a big file, so previews start fast (a 20 MB stem is not fully loaded). */
-  async function decodeStart(file, sec) {
-    if (file.size < 3 * 1024 * 1024) return BF.audio.decode(await file.arrayBuffer());
-    if (/\.wav$/i.test(file.name)) {
-      try {
-        const head = new Uint8Array(await file.slice(0, 65536).arrayBuffer());
-        const v = new DataView(head.buffer);
-        const tag = (o) => String.fromCharCode(head[o], head[o + 1], head[o + 2], head[o + 3]);
-        if (tag(0) === 'RIFF' && tag(8) === 'WAVE') {
-          let o = 12, byteRate = 0, align = 1;
-          while (o + 8 <= head.length) {
-            const id = tag(o), len = v.getUint32(o + 4, true);
-            if (id === 'fmt ') { byteRate = v.getUint32(o + 16, true); align = v.getUint16(o + 20, true) || 1; }
-            if (id === 'data' && byteRate) {
-              const want = Math.min(len, file.size - (o + 8), Math.floor((byteRate * sec) / align) * align);
-              const body = new Uint8Array(await file.slice(o + 8, o + 8 + want).arrayBuffer());
-              const out = new Uint8Array(o + 8 + body.length);
-              out.set(head.subarray(0, o + 8));
-              out.set(body, o + 8);
-              const ov = new DataView(out.buffer);
-              ov.setUint32(4, out.length - 8, true);
-              ov.setUint32(o + 4, body.length, true);
-              return await BF.audio.decode(out.buffer);
-            }
-            o += 8 + len + (len & 1);
-          }
-        }
-      } catch { /* fall back to the whole file */ }
-    } else if (/\.mp3$/i.test(file.name)) {
-      try { return await BF.audio.decode(await file.slice(0, Math.min(file.size, 1600 * 1024)).arrayBuffer()); } catch { /* whole file */ }
-    }
-    return BF.audio.decode(await file.arrayBuffer());
-  }
-
-  const decoded = new Map();
-  let playing = null;
+  // Previews stream the file with the browser's own media player (like a DAW reading from disk): it starts playing
+  // right away, whatever the size, instead of decoding the whole file first. It goes through the master insert.
+  let el = null, elUrl = null, elRef = null;
   F.preview = async function (ref) {
     try {
       const ctx = BF.audio.ensure();
-      let buf = decoded.get(ref);
-      if (!buf) {
-        const file = await F.resolve(ref);
-        buf = await decodeStart(file, 30);
-        decoded.set(ref, buf);
-        if (decoded.size > 40) decoded.delete(decoded.keys().next().value);
-      }
-      if (playing) { try { playing.stop(); } catch { /* ended */ } }
       BF.audio.stopPreview?.();
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(BF.audio.graph.inserts[0].preview);
-      src.start(ctx.currentTime + 0.005, 0, Math.min(buf.duration, 30));
-      playing = src;
-    } catch (e) { BF.ui.toast(`Can't play this file: ${e.message || e}`, true); }
+      if (!el) {
+        el = new Audio();
+        el.preload = 'auto';
+        try { ctx.createMediaElementSource(el).connect(BF.audio.graph.inserts[0].preview); } catch { /* plays directly instead */ }
+      }
+      if (elRef === ref && el.src) { el.currentTime = 0; await el.play(); return; }
+      const file = await F.resolve(ref);
+      if (elUrl) URL.revokeObjectURL(elUrl);
+      elUrl = URL.createObjectURL(file);
+      elRef = ref;
+      el.src = elUrl;
+      await el.play();
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // another preview started
+      BF.ui.toast(`Can't play this file: ${e.message || e}`, true);
+    }
   };
-  F.stopPreview = () => { if (playing) { try { playing.stop(); } catch { /* */ } playing = null; } };
+  F.stopPreview = () => { if (el) el.pause(); };
+  // anything else that stops previews (pressing Play, another preview) also stops a file preview
+  const baseStop = BF.audio.stopPreview;
+  BF.audio.stopPreview = function () { if (el && !el.paused) el.pause(); return baseStop.apply(this, arguments); };
 
   /** Double-click / Enter: audio -> Sampler channel, MIDI -> notes, .flp -> open project, .fst -> load state. */
   F.use = async function (ref, kind) {
