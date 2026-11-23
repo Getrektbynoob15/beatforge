@@ -270,7 +270,7 @@
       BF.packImport.readZip(files[0]).then((items) => BF.packImport.importFiles(items, files[0].name.replace(/\.zip$/i, ''))).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true)).finally(() => BF.ui.busy(null));
       return;
     }
-    if (/\.(json|bfp|midi?|flp)$/i.test(files[0].name)) BF.io.open(files[0]);
+    if (/\.(json|bfp|midi?|flp|fst)$/i.test(files[0].name)) BF.io.open(files[0]);
     else BF.io.importToPlaylist(files, 0, 0);
   });
   window.addEventListener('beforeunload', (e) => { if (BF.dirty && !navigator.userAgent.includes('Electron')) { e.preventDefault(); e.returnValue = ''; } });

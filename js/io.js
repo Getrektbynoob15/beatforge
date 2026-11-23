@@ -66,7 +66,7 @@
   IO.importToPlaylist = async function (files, track = 0, beat = 0) {
     let at = beat, added = 0;
     for (const f of files) {
-      if (/\.(json|bfp|midi?|flp)$/i.test(f.name)) { IO.open(f); return; }
+      if (/\.(json|bfp|midi?|flp|fst)$/i.test(f.name)) { IO.open(f); return; }
       const id = await IO.addSample(f);
       if (!id) continue;
       const bpm = BF.project.bpm;
@@ -127,7 +127,8 @@
 
   IO.open = async function (file) {
     if (/\.midi?$/i.test(file.name)) return BF.midiImport(file);
-    if (/\.flp$/i.test(file.name)) { BF.ui.toast('FL Studio .flp files cannot be opened directly. In FL use File → Export → MIDI file, then open the .mid here.', true); return; }
+    if (/\.flp$/i.test(file.name)) return BF.flp.importFile(file);
+    if (/\.fst$/i.test(file.name)) return BF.flp.importState(file);
     try {
       if (file.size > MAX_PROJECT) throw new Error(`This project is ${fmtMB(file.size)}, too large to open.`);
       BF.ui.busy('Opening project…');

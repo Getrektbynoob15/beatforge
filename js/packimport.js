@@ -80,6 +80,31 @@
     const total = items.reduce((a, x) => a + (x.file?.size || 0), 0);
     if (total > MAX_PACK) { BF.ui.toast(`This pack is ${(total / 1048576).toFixed(0)} MB; the limit is 1500 MB.`, true); return; }
     BF.transport.stop();
+    // a pack with an FL Studio project: build from that (notes, arrangement, mixer) and use the pack's audio for its samples;
+    // the stems are then added as muted reference tracks
+    const flp = items.find((x) => x.file && /\.flp$/i.test(x.file.name));
+    if (flp) {
+      const report = await BF.flp.importFile(flp.file, items, { confirmReplace: false, quiet: true });
+      if (report) {
+        const used = new Set(Object.values(BF.project.samples).map((s) => s.name.toLowerCase()));
+        const stemItems = items.filter((x) => x.file && /(^|\/)stems?\//i.test(x.path) && /\.(wav|mp3|ogg|flac|aif|aiff)$/i.test(x.file.name) && !used.has(x.file.name.replace(/\.[^.]+$/, '').toLowerCase()));
+        let added = 0;
+        for (const it of stemItems) {
+          const used2 = new Set(BF.project.clips.map((c) => c.track));
+          const t = BF.project.tracks.findIndex((_, k) => !used2.has(k));
+          if (t < 0) break;
+          const id = await BF.io.addSample(it.file);
+          if (!id) continue;
+          BF.commit((q) => { q.tracks[t].name = `${pretty(it.file.name)} (stem)`; q.tracks[t].mute = true; q.clips.push({ id: BF.uid('c'), kind: 'audio', track: t, start: 0, len: 0, sampleId: id, mode: 'stretch', speed: 1, pitch: 0, srcBpm: q.bpm, gain: 1 }); });
+          added++;
+        }
+        report.skipped.push(...items.filter((x) => x.file && /\.fst$/i.test(x.file.name)).map((x) => `${x.file.name} (open it on its own: File → Open)`));
+        PI.lastSkipped = report.skipped;
+        BF.ui.busy(null);
+        BF.flp.showReport(`Imported ${packName}`, report, added);
+        return;
+      }
+    }
     const p = BF.newProject(false);
     p.name = packName || 'Imported pack';
     p.channels = [];

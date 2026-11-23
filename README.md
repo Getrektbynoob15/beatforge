@@ -66,7 +66,7 @@ arrange them in the **playlist**, and mix in the **mixer**. Everything opens as 
   stems (one WAV per mixer insert) and MIDI (Ctrl+Shift+M).
 - **Bring songs from other DAWs:** export a MIDI file there (in FL Studio: File → Export → MIDI file) and open the `.mid` here.
   Notes, drums (General MIDI drum map), tempo and the arrangement come in; repeated 4-bar sections share one pattern.
-  `.flp` project files cannot be opened directly (the format is not public, and other DAWs' plugins can't be loaded).
+  FL Studio `.flp` projects open directly too (File → Open or drag them in), see Known limitations for what comes over.
 
 ### Keyboard shortcuts (press F1 in the app for the full list)
 
@@ -110,7 +110,10 @@ Build the desktop apps with `./build.sh` (needs the official Electron 33.2.1 zip
 
 ## Known limitations
 
-- No VST/AU plugins (see above). No direct `.flp` import (use MIDI).
+- No VST/AU plugins (see above).
+- FL Studio `.flp` import (File → Open) brings in tempo, channels, notes, patterns, playlist, track and mixer names and
+  matching effects. FL's own plugins and VSTs are replaced by the closest BeatForge sound; settings inside `.fst` files are
+  FL's own format, so effects start at default settings. Written from the community's public description of the format.
 - Desktop builds are not code-signed: Windows may warn on first start, and macOS needs the two Terminal commands above.
   The Windows and Mac builds are made on Linux and have not been tested on real Windows or Mac machines yet.
 - Slicing works on pattern clips only; audio clips can be trimmed from the right edge.
