@@ -23,7 +23,7 @@
     list = document.createElement('div');
     list.className = 'br-list';
     list.setAttribute('role', 'tree');
-    root.append(head, list);
+    root.append(head, list, BF.ui.splitter({ cssVar: '--browser-w', min: 160, max: 520, key: 'beatforge.browserWidth', def: 230, onChange: () => BF.win.all.forEach((w) => w.place()) }));
     try { B.open = localStorage.getItem('beatforge.browser') !== '0'; } catch { /* */ }
     root.hidden = !B.open;
   };

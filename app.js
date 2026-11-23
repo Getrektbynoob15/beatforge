@@ -112,7 +112,7 @@
     });
     BF.patterns.syncSelect($('patSelect'));
     document.querySelectorAll('[data-open]').forEach((b) => b.setAttribute('aria-pressed', String(W.isOpen(b.dataset.open))));
-    document.title = `${BF.dirty ? '• ' : ''}${p.name} · BeatForge`;
+    document.title = `${BF.dirty ? '• ' : ''}${p.name} · BeatForge ${window.BF_VERSION || ''}`;
   }
 
   // ---------- top bar ----------

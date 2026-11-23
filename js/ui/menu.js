@@ -58,6 +58,37 @@
     BF.ui.menu(r.left, r.bottom + 2, items);
   };
 
+  /** A drag handle that resizes a panel: sets the CSS variable `cssVar` (px) on <html>, remembered per computer. */
+  BF.ui.splitter = function ({ cssVar, min, max, key, def, onChange }) {
+    const h = document.createElement('div');
+    h.className = 'splitter';
+    h.setAttribute('role', 'separator');
+    h.setAttribute('aria-orientation', 'vertical');
+    h.title = 'Drag to resize (double-click: default size)';
+    const set = (px) => {
+      px = Math.round(Math.max(min, Math.min(max, px)));
+      document.documentElement.style.setProperty(cssVar, `${px}px`);
+      try { localStorage.setItem(key, String(px)); } catch { /* */ }
+      return px;
+    };
+    let saved = def;
+    try { saved = +localStorage.getItem(key) || def; } catch { /* */ }
+    set(saved);
+    h.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      h.setPointerCapture(e.pointerId);
+      const x0 = e.clientX;
+      const w0 = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cssVar)) || def;
+      let raf = 0;
+      const move = (ev) => { set(w0 + ev.clientX - x0); if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (onChange) onChange(); }); };
+      const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); if (onChange) onChange(); };
+      h.addEventListener('pointermove', move);
+      h.addEventListener('pointerup', up);
+    });
+    h.addEventListener('dblclick', () => { set(def); if (onChange) onChange(); });
+    return h;
+  };
+
   /** Ask for a line of text in BeatForge's own dialog (the desktop app has no window.prompt).
    * Resolves to the trimmed text, or null when cancelled. */
   BF.ui.prompt = function (label, value = '') {

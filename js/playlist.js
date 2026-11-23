@@ -65,7 +65,8 @@
     playhead.className = 'playhead';
     inner.append(ruler, tracksEl, playhead);
     scroller.append(inner);
-    main.append(picker, scroller);
+    const split = document.createElement('div'); split.className = 'pl-split'; split.append(BF.ui.splitter({ cssVar: '--picker-w', min: 90, max: 420, key: 'beatforge.pickerWidth', def: 150 }));
+    main.append(picker, split, scroller);
     panel = document.createElement('div');
     panel.className = 'clip-panel';
     panel.hidden = true;

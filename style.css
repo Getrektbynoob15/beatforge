@@ -336,3 +336,12 @@ input[type=range] { accent-color: var(--accent); }
 /* browser: pack / folder trees */
 .br-folder { font-weight: 600; }
 .br-folder[aria-expanded="true"] { color: var(--text); }
+
+/* resizable panels + every window is its own layer (nothing inside one window shows through another) */
+.win { isolation: isolate; }
+.browser { position: relative; width: var(--browser-w, 230px); flex: 0 0 var(--browser-w, 230px); }
+.pl-picker { width: var(--picker-w, 150px); flex: 0 0 var(--picker-w, 150px); }
+.splitter { position: absolute; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; z-index: 20; }
+.splitter:hover, .splitter:active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.pl-split { position: relative; flex: 0 0 0; width: 0; }
+.pl-split .splitter { right: -3px; }

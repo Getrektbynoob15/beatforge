@@ -138,6 +138,36 @@
   // Previews stream the file with the browser's own media player (like a DAW reading from disk): it starts playing
   // right away, whatever the size, instead of decoding the whole file first. It goes through the master insert.
   let el = null, elUrl = null, elRef = null;
+  const elSkip = new Map();
+  /** Seconds of silence at the start of a 16/24-bit PCM WAV (read in pieces, stops at the first sound). Other formats: 0. */
+  async function soundStart(file) {
+    if (!/\.wav$/i.test(file.name) || file.size < 512 * 1024) return 0;
+    const head = new Uint8Array(await file.slice(0, 65536).arrayBuffer());
+    const v = new DataView(head.buffer);
+    const tag = (o) => String.fromCharCode(head[o], head[o + 1], head[o + 2], head[o + 3]);
+    if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return 0;
+    let o = 12, fmt = null;
+    while (o + 8 <= head.length) {
+      const id = tag(o), len = v.getUint32(o + 4, true);
+      if (id === 'fmt ') fmt = { code: v.getUint16(o + 8, true), ch: v.getUint16(o + 10, true), rate: v.getUint32(o + 12, true), bits: v.getUint16(o + 22, true) };
+      if (id === 'data' && fmt) {
+        const bytes = fmt.bits / 8, frame = bytes * fmt.ch, start = o + 8, end = Math.min(file.size, start + len);
+        if (fmt.code !== 1 || (bytes !== 2 && bytes !== 3)) return 0;
+        const thr = bytes === 2 ? 33 : 33 * 256; // about -60 dB
+        const CHUNK = 1 << 20;
+        for (let p = start; p < end; p += CHUNK) {
+          const blk = new Uint8Array(await file.slice(p, Math.min(end, p + CHUNK)).arrayBuffer());
+          for (let i = 0; i + bytes <= blk.length; i += bytes) {
+            const s = bytes === 2 ? (blk[i] | (blk[i + 1] << 24 >> 16)) : (blk[i] | (blk[i + 1] << 8) | (blk[i + 2] << 24 >> 8));
+            if (s > thr || s < -thr) return Math.max(0, Math.floor((p - start + i) / frame) / fmt.rate - 0.05);
+          }
+        }
+        return 0;
+      }
+      o += 8 + len + (len & 1);
+    }
+    return 0;
+  }
   F.preview = async function (ref) {
     try {
       const ctx = BF.audio.ensure();
@@ -147,12 +177,16 @@
         el.preload = 'auto';
         try { ctx.createMediaElementSource(el).connect(BF.audio.graph.inserts[0].preview); } catch { /* plays directly instead */ }
       }
-      if (elRef === ref && el.src) { el.currentTime = 0; await el.play(); return; }
+      if (elRef === ref && el.src) { el.currentTime = elSkip.get(ref) || 0; await el.play(); return; }
       const file = await F.resolve(ref);
       if (elUrl) URL.revokeObjectURL(elUrl);
       elUrl = URL.createObjectURL(file);
       elRef = ref;
       el.src = elUrl;
+      // stems often start with a long silence (their part comes in later): start the preview where the sound starts
+      const skip = await soundStart(file).catch(() => 0);
+      el.currentTime = skip;
+      elSkip.set(ref, skip);
       await el.play();
     } catch (e) {
       if (e && e.name === 'AbortError') return; // another preview started
