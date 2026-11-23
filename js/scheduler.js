@@ -188,6 +188,7 @@
     tick();
     T.timer = setInterval(tick, TICK_MS);
     BF.recorder.onPlay(start, T.anchorTime);
+    if (BF.playlist.resetFollow) BF.playlist.resetFollow();
     BF.emit('transport');
   };
 

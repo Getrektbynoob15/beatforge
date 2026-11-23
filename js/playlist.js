@@ -82,6 +82,7 @@
       }
     }, { passive: false });
     scroller.addEventListener('keydown', keys);
+    P.watchScroll();
     // ruler: click = set the start position (and clear the loop); drag = select a loop region
     ruler.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -767,8 +768,23 @@
   P.drawPlayhead = function (beat) {
     if (playhead) playhead.style.transform = `translateX(${HEADW + beat * px}px)`;
   };
+  // Follow the play line while playing, until you scroll yourself (wheel, scrollbar, keys); it follows again from the
+  // next time you press Play. Our own scrolling is ignored when deciding that.
+  let ownScroll = false, userScrolled = false;
   P.follow = function (beat) {
+    if (userScrolled) return;
     const x = HEADW + beat * px;
-    if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft + HEADW) scroller.scrollLeft = Math.max(0, x - HEADW - 40);
+    if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft + HEADW) {
+      ownScroll = true;
+      scroller.scrollLeft = Math.max(0, x - HEADW - 40);
+    }
+  };
+  P.resetFollow = () => { userScrolled = false; };
+  P.watchScroll = function () {
+    const mark = () => { if (BF.transport.playing) userScrolled = true; };
+    scroller.addEventListener('wheel', mark, { passive: true });
+    scroller.addEventListener('scroll', () => { if (ownScroll) { ownScroll = false; return; } mark(); });
+    // dragging the scrollbar (a pointerdown on the scroller itself, not on a clip or lane)
+    scroller.addEventListener('pointerdown', (e) => { if (e.target === scroller) mark(); });
   };
 })();
