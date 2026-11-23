@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const SHELL_API = 2; // bump when the desktop shell gains features an update needs (2: plugin store)
+const SHELL_API = 3; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links)
 const REPO = 'Getrektbynoob15/beatforge';
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEVeewGzZ2Xthyx2YqibvO8vpwJie7J22oq9C1sjeQcM=

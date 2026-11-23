@@ -283,7 +283,7 @@
   /** Host: open a session for the current project. */
   C.host = async function () {
     if (C.role) return;
-    if (!C.available()) { BF.ui.toast('Live sessions work in the desktop app (2.9 or newer) and on grbnstudios.com/beatforge-web.', true); return; }
+    if (!C.available()) { C.needDesktopUpdate(); return; }
     const name = await askName();
     if (!name) return;
     try {
@@ -322,7 +322,7 @@
     if (C.role) return;
     code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (code.length !== 6) { BF.ui.toast('A session code has 6 letters/numbers.', true); return; }
-    if (!C.available()) { BF.ui.toast('Live sessions work in the desktop app (2.9 or newer) and on grbnstudios.com/beatforge-web.', true); return; }
+    if (!C.available()) { C.needDesktopUpdate(); return; }
     if (BF.dirty && !confirm('Joining replaces the project you have open with the host\'s project. Continue? (Save first if you want to keep it.)')) return;
     const name = await askName();
     if (!name) return;
@@ -425,7 +425,34 @@
       C.join(code);
     });
   };
+  /** The app updated itself, but its desktop part is older than live sessions: explain and offer the download. */
+  C.needDesktopUpdate = function () {
+    const d = document.createElement('dialog');
+    d.className = 'dlg';
+    const inDesktop = !!window.beatforgeDesktop;
+    d.innerHTML = inDesktop
+      ? '<h2>One download needed</h2><p>Live sessions and invite links need the new desktop part of BeatForge. The automatic update only updates the inside of the app, so please download and install BeatForge once more (your projects, templates and packs stay).</p><p>After that, updates are automatic again.</p>'
+      : '<h2>Live sessions</h2><p>Live sessions work in the BeatForge desktop app and on grbnstudios.com/beatforge-web.</p>';
+    const actions = document.createElement('div'); actions.className = 'dlg-actions';
+    const close = document.createElement('button'); close.className = 'btn'; close.textContent = 'Later';
+    close.addEventListener('click', () => d.close());
+    const dl = document.createElement('button'); dl.className = 'btn accent'; dl.textContent = 'Download BeatForge';
+    dl.addEventListener('click', () => { window.open('https://grbnstudios.com/beatforge', '_blank', 'noopener'); d.close(); });
+    actions.append(close, dl);
+    d.append(actions);
+    document.body.append(d);
+    d.addEventListener('close', () => d.remove());
+    d.showModal();
+  };
   C.inviteLink = () => `https://grbnstudios.com/beatforge-join?c=${C.code}`;
+
+  // desktop app with an older desktop part (the in-app update can't replace it): say so once per version
+  setTimeout(() => {
+    if (!window.beatforgeDesktop || typeof window.beatforgeDesktop.collab === 'function') return;
+    const key = `beatforge.shellNotice.${window.BF_VERSION}`;
+    try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch { return; }
+    BF.ui.toast('New in this version: live sessions (👥). They need a one-time download of BeatForge from grbnstudios.com/beatforge; click 👥 for the link.');
+  }, 4000);
 
   C._test = { diff, applyOp, strip };
 })();
