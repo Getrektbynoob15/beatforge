@@ -66,7 +66,7 @@
   IO.importToPlaylist = async function (files, track = 0, beat = 0) {
     let at = beat, added = 0;
     for (const f of files) {
-      if (/\.json$/i.test(f.name)) { IO.open(f); return; }
+      if (/\.(json|bfp|midi?|flp)$/i.test(f.name)) { IO.open(f); return; }
       const id = await IO.addSample(f);
       if (!id) continue;
       const bpm = BF.project.bpm;
@@ -109,9 +109,10 @@
     const p = BF.project;
     const data = { ...p, samples: usedSamples(p), savedAt: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    download(blob, `${safeName(p.name)}.beatforge.json`);
+    // .bfp = BeatForge Project (JSON inside, all audio included). Older .beatforge.json files still open.
+    download(blob, `${safeName(p.name)}.bfp`);
     BF.dirty = false;
-    BF.ui.toast(`Saved ${safeName(p.name)}.beatforge.json (${fmtMB(blob.size)})`);
+    BF.ui.toast(`Saved ${safeName(p.name)}.bfp (${fmtMB(blob.size)})`);
   };
 
   IO.saveAs = function () {
@@ -122,6 +123,8 @@
   };
 
   IO.open = async function (file) {
+    if (/\.midi?$/i.test(file.name)) return BF.midiImport(file);
+    if (/\.flp$/i.test(file.name)) { BF.ui.toast('FL Studio .flp files cannot be opened directly. In FL use File → Export → MIDI file, then open the .mid here.', true); return; }
     try {
       if (file.size > MAX_PROJECT) throw new Error(`This project is ${fmtMB(file.size)}, too large to open.`);
       BF.ui.busy('Opening project…');
@@ -135,7 +138,7 @@
         BF.ui.busy(`Decoding ${s.name}…`);
         decoded.set(id, await BF.audio.decode(bytes.buffer).catch(() => { throw new Error(`The audio "${s.name}" in this project could not be decoded.`); }));
       }
-      if (!p.name || p.name === 'Untitled') p.name = file.name.replace(/(\.beatforge)?\.json$/i, '');
+      if (!p.name || p.name === 'Untitled') p.name = file.name.replace(/(\.beatforge)?\.(json|bfp)$/i, '');
       BF.transport.stop();
       BF.audio.buffers.clear();
       BF.audio.stretched.clear();

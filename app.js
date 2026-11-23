@@ -153,14 +153,18 @@
   $('menuFile').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
     { label: 'New', hint: 'Ctrl+N', action: newProject },
     { label: 'New from demo', action: () => { if (!BF.dirty || confirm('Unsaved changes are lost. Continue?')) { BF.transport.stop(); BF.replaceProject(BF.newProject(true)); } } },
-    { label: 'Open…', hint: 'Ctrl+O', action: openFile },
+    { label: 'Open… (.bfp project or .mid)', hint: 'Ctrl+O', action: openFile },
     { label: 'Save', hint: 'Ctrl+S', action: () => BF.io.save() },
     { label: 'Save as…', hint: 'Ctrl+Shift+S', action: () => BF.io.saveAs() },
     '-',
     { label: 'Import audio to playlist…', action: () => BF.io.pickFiles((f) => BF.io.importToPlaylist(f, 0, 0)) },
     { label: 'Import audio as Sampler channels…', action: () => BF.io.pickFiles((f) => BF.io.importToRack(f)) },
     '-',
-    { label: 'Export song as WAV…', hint: 'Ctrl+R', action: () => BF.io.exportWav('song') },
+    { label: 'Import MIDI file…', action: openFile },
+    '-',
+    { label: 'Export song as MP3… (small, for Discord)', hint: 'Ctrl+Shift+R', action: () => BF.exporter.export('mp3') },
+    { label: 'Export song as OGG… (smallest)', action: () => BF.exporter.export('ogg') },
+    { label: 'Export song as WAV… (full quality)', hint: 'Ctrl+R', action: () => BF.io.exportWav('song') },
     { label: 'Export current pattern as WAV…', action: () => BF.io.exportWav('pattern') },
     { label: 'Export MIDI file…', hint: 'Ctrl+Shift+M', action: () => BF.keys.exportMidi() },
     { label: 'Export stems (one WAV per insert)…', action: () => BF.io.exportStems() },
@@ -223,7 +227,7 @@
     e.preventDefault();
     const files = [...(e.dataTransfer?.files || [])];
     if (!files.length) return;
-    if (/\.json$/i.test(files[0].name)) BF.io.open(files[0]);
+    if (/\.(json|bfp|midi?|flp)$/i.test(files[0].name)) BF.io.open(files[0]);
     else BF.io.importToPlaylist(files, 0, 0);
   });
   window.addEventListener('beforeunload', (e) => { if (BF.dirty && !navigator.userAgent.includes('Electron')) { e.preventDefault(); e.returnValue = ''; } });

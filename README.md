@@ -41,8 +41,13 @@ arrange them in the **playlist**, and mix in the **mixer**. Everything opens as 
 - **Recording (R):** notes from a MIDI or typing keyboard, and audio from a microphone (Settings, F10). Metronome: Ctrl+M.
 - **Loop region:** drag on the playlist ruler; Song mode loops inside it.
 - **Pattern / Song (L):** Pattern mode loops the current pattern; Song mode plays the playlist.
-- **File menu:** save/open projects (one `.beatforge.json` with all audio inside), export the song, the current pattern,
-  or stems (one WAV per mixer insert). BeatForge 1 projects open and are converted automatically.
+- **Saving:** projects are `.bfp` files (BeatForge Project: one file with all your audio inside). Ctrl+S saves,
+  Ctrl+O opens. Older `.beatforge.json` and BeatForge 1 projects still open.
+- **Export:** MP3 (Ctrl+Shift+R, small enough for Discord), OGG Opus (smallest), WAV (Ctrl+R, full quality), the current pattern,
+  stems (one WAV per mixer insert) and MIDI (Ctrl+Shift+M).
+- **Bring songs from other DAWs:** export a MIDI file there (in FL Studio: File → Export → MIDI file) and open the `.mid` here.
+  Notes, drums (General MIDI drum map), tempo and the arrangement come in; repeated 4-bar sections share one pattern.
+  `.flp` project files cannot be opened directly (the format is not public, and other DAWs' plugins can't be loaded).
 
 ### Keyboard shortcuts (press F1 in the app for the full list)
 
@@ -82,7 +87,7 @@ Build the desktop apps with `./build.sh` (needs the official Electron 33.2.1 zip
 
 ## Known limitations
 
-- No VST/AU plugins (see above). No MP3 export yet (WAV, stems and MIDI only).
+- No VST/AU plugins (see above). No direct `.flp` import (use MIDI).
 - Desktop builds are not code-signed, so Windows may warn on first start. No macOS build yet.
 - Slicing works on pattern clips only; audio clips can be trimmed from the right edge.
 - Time stretch is a simple WSOLA: great for loops and vocals, it can smear sharp drum hits at extreme speeds.
@@ -90,4 +95,6 @@ Build the desktop apps with `./build.sh` (needs the official Electron 33.2.1 zip
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). All code, sounds and design are original.
+MIT, see [LICENSE](LICENSE). All code, sounds and design are original, except `js/vendor/lame-min.js`:
+the [lamejs](https://github.com/zhuker/lamejs) MP3 encoder (a port of [LAME](https://lame.sourceforge.net)), included unmodified
+under the LGPL-3.0, see [js/vendor/LAMEJS-LICENSE.txt](js/vendor/LAMEJS-LICENSE.txt).

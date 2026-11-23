@@ -54,7 +54,7 @@
     <main id="workspace" class="workspace" aria-label="Workspace"></main>
   </div>
 
-  <input id="openInput" type="file" accept=".json,application/json" hidden>
+  <input id="openInput" type="file" accept=".bfp,.json,.mid,.midi,application/json,audio/midi" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div id="busy" class="busy" hidden><div class="busy-box" role="alert"><span class="spinner" aria-hidden="true"></span> <span id="busyText">Working…</span></div></div>
   <dialog id="updateDlg" class="dlg" aria-labelledby="updateTitle">
@@ -94,6 +94,8 @@
   <script src="js/midi.js"></script>
   <script src="js/recorder.js"></script>
   <script src="js/io.js"></script>
+  <script src="js/export2.js"></script>
+  <script src="js/midiimport.js"></script>
   <script src="js/shortcuts.js"></script>
   <script src="app.js"></script>
   <script src="js/desktop.js"></script>

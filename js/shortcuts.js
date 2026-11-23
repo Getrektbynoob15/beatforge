@@ -17,7 +17,7 @@
     ]],
     ['File', [
       ['Ctrl+N', 'New project'], ['Ctrl+O', 'Open'], ['Ctrl+S', 'Save'], ['Ctrl+Shift+S', 'Save as'],
-      ['Ctrl+R', 'Export WAV'], ['Ctrl+Shift+M', 'Export MIDI file'],
+      ['Ctrl+R', 'Export WAV'], ['Ctrl+Shift+R', 'Export MP3'], ['Ctrl+Shift+M', 'Export MIDI file'],
     ]],
     ['Editing', [
       ['Ctrl+Z', 'Undo / redo the last change (press again to redo)'], ['Ctrl+Alt+Z', 'Undo (step back)'], ['Ctrl+Shift+Z / Ctrl+Y', 'Redo (step forward)'],
@@ -140,6 +140,7 @@
     if (mod && k === 'o') { stop(); ctx.openFile(); return; }
     if (mod && k === 'n') { stop(); ctx.newProject(); return; }
     if (mod && !e.shiftKey && k === 'r') { stop(); BF.io.exportWav('song'); return; }
+    if (mod && e.shiftKey && k === 'r') { stop(); BF.exporter.export('mp3'); return; }
     if (mod && e.shiftKey && k === 'm') { stop(); K.exportMidi(); return; }
     if (mod && k === 'h') { stop(); panic(); return; }
     if (mod && k === 'f') { stop(); BF.browser.toggle(true); document.querySelector('.br-head input')?.focus(); return; }
@@ -280,18 +281,24 @@
     const PPQ = 96;
     const events = new Map(); // channel id -> [[tick, bytes]]
     const add = (chId, tick, bytes) => { if (!events.has(chId)) events.set(chId, []); events.get(chId).push([Math.round(tick), bytes]); };
+    // drums use the General MIDI drum map, so other programs (and our importer) know which sound it is
+    const GM = { kick: 36, rim: 37, snare: 38, clap: 39, tom: 45, hihat: 42, openhat: 46, crash: 49, cowbell: 56, perc: 60, bass808: 35 };
+    const stepKey = (ch) => (ch.plugin === 'drum' ? GM[ch.params.sound] || 60 : 60);
+    const noteKey = (ch, k) => (ch.plugin === 'drum' ? stepKey(ch) : k);
     const placePattern = (pt, atBeat, cutBeat) => {
       p.channels.forEach((ch) => {
         (pt.steps[ch.id] || []).forEach((on, i) => {
           if (!on || i >= pt.length || atBeat + i / 4 >= cutBeat) return;
           const t = (atBeat + i / 4) * PPQ;
-          add(ch.id, t, [0x90, 60, 100]); add(ch.id, t + PPQ / 4 - 1, [0x80, 60, 0]);
+          const key = stepKey(ch);
+          add(ch.id, t, [0x90, key, 100]); add(ch.id, t + PPQ / 4 - 1, [0x80, key, 0]);
         });
         (pt.notes[ch.id] || []).forEach((n) => {
           if (n.mute || n.start >= pt.length || atBeat + n.start / 4 >= cutBeat) return;
           const t = (atBeat + n.start / 4) * PPQ;
-          add(ch.id, t, [0x90, n.key, Math.max(1, Math.round(n.vel * 127))]);
-          add(ch.id, t + Math.max(1, (Math.min(n.len, (cutBeat - atBeat) * 4 - n.start) / 4) * PPQ), [0x80, n.key, 0]);
+          const key = noteKey(ch, n.key);
+          add(ch.id, t, [0x90, key, Math.max(1, Math.round(n.vel * 127))]);
+          add(ch.id, t + Math.max(1, (Math.min(n.len, (cutBeat - atBeat) * 4 - n.start) / 4) * PPQ), [0x80, key, 0]);
         });
       });
     };

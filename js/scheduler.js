@@ -200,9 +200,8 @@
   };
 
   /** Render the whole song (Song mode, no loop) into an OfflineAudioContext. */
-  BF.renderSong = async function (mode = 'song') {
+  BF.renderSong = async function (mode = 'song', rate = 44100) {
     const p = BF.project;
-    const rate = 44100;
     const end = mode === 'song' ? BF.songEndBeat(p) : BF.patternBeats(BF.pattern());
     const total = Math.ceil((((end * 60) / p.bpm) + 2.5) * rate); // tail for reverb/delay/release
     const ctx = new OfflineAudioContext(2, total, rate);
