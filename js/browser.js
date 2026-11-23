@@ -136,7 +136,7 @@
     if (sig === lastSig) return;
     lastSig = sig;
     const scroll = list.scrollTop;
-    const focusLabel = list.contains(document.activeElement) ? document.activeElement.textContent : null;
+    const focusKey = list.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     list.textContent = '';
     secs.forEach((sec) => {
       const items = q ? sec.items.filter((it) => it.label.toLowerCase().includes(q)) : sec.items;
@@ -156,6 +156,7 @@
         b.tabIndex = 0;
         b.addEventListener('keydown', (e) => { if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); b.click(); } });
         b.className = 'br-item' + (it.active ? ' on' : '');
+        b.dataset.key = `${sec.name}|${it.label}`;
         b.dataset.hint = it.hint;
         if (it.color) b.style.setProperty('--c', it.color);
         const ic = document.createElement('span'); ic.className = 'br-ic'; ic.textContent = it.icon; ic.setAttribute('aria-hidden', 'true');
@@ -187,7 +188,9 @@
       });
     });
     list.scrollTop = scroll;
-    if (focusLabel) [...list.querySelectorAll('.br-item')].find((x) => x.textContent === focusLabel)?.focus();
+    // focus the same item again without scrolling (names repeat, e.g. "Kick" in Drums and in a pack)
+    if (focusKey) [...list.querySelectorAll('.br-item')].find((x) => x.dataset.key === focusKey)?.focus({ preventScroll: true });
+    list.scrollTop = scroll;
   };
 
   /** Read a browser drag payload from a drop event (null if it is not one). */

@@ -212,6 +212,7 @@
     loopEl.className = 'loop-region';
     loopEl.title = 'Loop region (Song mode). Double-click the ruler to remove it.';
     ruler.append(loopEl);
+    if (loopShade) loopShade.remove(); // one shade only (it used to pile up on every redraw until it looked solid)
     loopShade = document.createElement('div');
     loopShade.className = 'loop-shade';
     inner.append(loopShade);
