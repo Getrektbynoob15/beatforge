@@ -278,5 +278,6 @@
   BF.emit('load');
   requestAnimationFrame(frame);
   BF.live.start(false);
+  BF.ready = true; // the desktop shell only accepts an update after this line ran
   BF.ui.toast('Press Space to play the demo. F6 channel rack, F7 piano roll, F9 mixer, F1 shortcuts.');
 })();

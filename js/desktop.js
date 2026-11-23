@@ -47,7 +47,7 @@
 
   (async () => {
     BF.desktop.info = await D.info();
-    D.booted();
+    if (BF.ready) D.booted(); // a broken update never reaches this, so the shell falls back to the bundled copy
     if (await D.autoCheckDue()) setTimeout(() => BF.desktop.check(false), 4000);
   })();
 })();
