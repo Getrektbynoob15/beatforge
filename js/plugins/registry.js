@@ -11,7 +11,7 @@
     register(def) { defs.set(def.id, def); },
     get: (id) => defs.get(id),
     has: (id) => defs.has(id),
-    list: (kind) => [...defs.values()].filter((d) => d.kind === kind),
+    list: (kind) => [...defs.values()].filter((d) => d.kind === kind && !d.missing),
 
     /** Parameter values for a new instance. `preset` = preset name or an object of overrides. */
     defaults(id, preset) {
@@ -28,6 +28,10 @@
       const d = defs.get(id);
       const src = params && typeof params === 'object' ? params : {};
       const out = {};
+      if (d.missing) { // a community plugin that is not installed: keep its settings as they are
+        Object.keys(src).slice(0, 32).forEach((k) => { const v = src[k]; if (/^[A-Za-z][A-Za-z0-9_]{0,23}$/.test(k) && typeof v === 'number' && Number.isFinite(v)) out[k] = v; });
+        return out;
+      }
       d.params.forEach((p) => {
         const v = src[p.id];
         if (p.type === 'select') out[p.id] = p.options.some((o) => o[0] === v) ? v : p.default;

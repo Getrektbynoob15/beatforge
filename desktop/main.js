@@ -8,10 +8,16 @@ const fs = require('node:fs');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const SHELL_API = 1; // bump when the desktop shell gains features an update needs
+const SHELL_API = 2; // bump when the desktop shell gains features an update needs (2: plugin store)
 const REPO = 'Getrektbynoob15/beatforge';
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEVeewGzZ2Xthyx2YqibvO8vpwJie7J22oq9C1sjeQcM=
+-----END PUBLIC KEY-----`;
+// Community plugin store (grbnstudios.com). The catalog is signed by the website with this key after the Owner
+// approves a plugin; every plugin file must match the SHA-256 in that signed catalog.
+const PLUGIN_STORE = 'https://grbnstudios.com/api/main/beatforge/plugins';
+const PLUGIN_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAZaO89JxiC4i4uWh/rMNv9jwHcEDA4vDGYLth2UqWLMw=
 -----END PUBLIC KEY-----`;
 const BUNDLED_DIR = __dirname;
 const BUNDLED_VERSION = require('./package.json').version;
@@ -153,6 +159,34 @@ async function installUpdate() {
   for (const d of fs.readdirSync(versionsDir())) if (!keep.has(d)) fs.rmSync(path.join(versionsDir(), d), { recursive: true, force: true });
   return { ok: true, version: pkg.version };
 }
+
+// ---------- plugin store ----------
+let verifiedCatalog = null;
+async function pluginCatalog() {
+  const r = await fetch(`${PLUGIN_STORE}/catalog`, { headers: { 'User-Agent': 'BeatForge' }, cache: 'no-store' });
+  if (!r.ok) throw new Error(`The plugin store answered ${r.status}`);
+  const body = await r.json();
+  if (typeof body.catalog !== 'string' || typeof body.signature !== 'string' || body.catalog.length > 2 * 1024 * 1024) throw new Error('The plugin store sent something unexpected.');
+  const ok = crypto.verify(null, Buffer.from(body.catalog, 'utf8'), crypto.createPublicKey(PLUGIN_KEY), Buffer.from(body.signature, 'base64'));
+  if (!ok) throw new Error('The plugin list is not signed by GRBN Studios. Nothing was loaded.');
+  const cat = JSON.parse(body.catalog);
+  if (cat.format !== 1 || !Array.isArray(cat.plugins)) throw new Error('The plugin list has an unknown format. Update BeatForge.');
+  verifiedCatalog = cat;
+  return cat;
+}
+async function pluginSource(id, version) {
+  if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(String(id)) || !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(String(version))) throw new Error('Invalid plugin.');
+  if (!verifiedCatalog) await pluginCatalog();
+  let item = verifiedCatalog.plugins.find((p) => p.id === id && p.version === version);
+  if (!item) { await pluginCatalog(); item = verifiedCatalog.plugins.find((p) => p.id === id && p.version === version); }
+  if (!item) throw new Error('That plugin version is not in the store (any more).');
+  const b = await getBytes(`${PLUGIN_STORE}/code/${id}/${version}.js`, 256 * 1024);
+  const sha = crypto.createHash('sha256').update(b).digest('hex');
+  if (sha !== item.sha256) throw new Error('The downloaded plugin does not match the signed list. It was not installed.');
+  return b.toString('utf8');
+}
+ipcMain.handle('plugins:catalog', async () => { try { return { catalog: await pluginCatalog() }; } catch (e) { return { error: String(e.message || e) }; } });
+ipcMain.handle('plugins:source', async (_e, id, version) => { try { return { source: await pluginSource(id, version) }; } catch (e) { return { error: String(e.message || e) }; } });
 
 ipcMain.handle('app:info', () => ({ version: loaded.version, bundled: BUNDLED_VERSION, shellApi: SHELL_API, updated: loaded.updated, settings: readJson(settingsFile(), { autoUpdate: true }) }));
 ipcMain.handle('app:booted', () => { clearTimeout(bootTimer); return true; });

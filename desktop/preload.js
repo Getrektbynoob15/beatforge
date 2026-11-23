@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('beatforgeDesktop', {
   autoCheckDue: () => ipcRenderer.invoke('update:auto-due'),
   setAutoUpdate: (on) => ipcRenderer.invoke('settings:set', { autoUpdate: !!on }),
   onSaveRequest: (fn) => ipcRenderer.on('app:save', () => fn()),
+  pluginCatalog: () => ipcRenderer.invoke('plugins:catalog'),
+  pluginSource: (id, version) => ipcRenderer.invoke('plugins:source', String(id), String(version)),
 });

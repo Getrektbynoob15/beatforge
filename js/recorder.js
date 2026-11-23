@@ -26,17 +26,6 @@
   };
 
   // ---------- audio recording ----------
-  const REC_WORKLET = `
-  class BfRecorder extends AudioWorkletProcessor {
-    constructor() { super(); this.on = true; this.port.onmessage = (e) => { if (e.data === 'stop') this.on = false; }; }
-    process(inputs) {
-      const inp = inputs[0];
-      if (this.on && inp && inp.length) this.port.postMessage(inp.map((c) => c.slice(0)));
-      return this.on;
-    }
-  }
-  registerProcessor('bf-recorder', BfRecorder);`;
-  let recUrl = null;
 
   R.getInput = async function () {
     if (R.stream) return R.stream;
@@ -51,11 +40,7 @@
     const ctx = BF.audio.ctx;
     try {
       const stream = await R.getInput();
-      if (!ctx.__bfRec) {
-        recUrl = recUrl || URL.createObjectURL(new Blob([REC_WORKLET], { type: 'application/javascript' }));
-        await ctx.audioWorklet.addModule(recUrl);
-        ctx.__bfRec = true;
-      }
+      await BF.audio.loadWorklets(ctx); // bf-recorder lives in js/worklet-host.js
       const src = ctx.createMediaStreamSource(stream);
       const node = new AudioWorkletNode(ctx, 'bf-recorder', { numberOfInputs: 1, numberOfOutputs: 0 });
       const chunks = [];

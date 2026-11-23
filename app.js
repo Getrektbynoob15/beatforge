@@ -32,6 +32,7 @@
   W.create({ id: 'mixer', title: 'Mixer', body: BF.mixer.build(), rect: { x: 0.02, y: 0.4, w: 0.96, h: 0.58 }, open: false, hotkey: 'F9', onShow: () => BF.mixer.render() });
   W.create({ id: 'editor', title: 'Plugin', body: BF.editor.build(), rect: { x: 0.5, y: 0.06, w: 0.46, h: 0.56 }, open: false, onShow: () => BF.editor.render() });
   W.create({ id: 'picker', title: 'Plugin picker', body: BF.keys.buildPicker(), rect: { x: 0.25, y: 0.1, w: 0.5, h: 0.6 }, open: false, hotkey: 'F8' });
+  W.create({ id: 'store', title: 'Plugin store', body: BF.community.build(), rect: { x: 0.15, y: 0.06, w: 0.7, h: 0.8 }, open: false, onShow: () => BF.community.render() });
   W.create({ id: 'auto', title: 'Automation', body: BF.auto.build(), rect: { x: 0.1, y: 0.5, w: 0.8, h: 0.42 }, open: false, onShow: () => BF.auto.render() });
   W.front('rack');
   const wsToggle = W.toggle;
@@ -190,6 +191,7 @@
     { label: 'Mixer', hint: 'F9', checked: W.isOpen('mixer'), action: () => W.toggle('mixer') },
     { label: 'Browser', hint: 'Alt+F8', checked: W.isOpen('browser'), action: () => W.toggle('browser') },
     { label: 'Plugin picker', hint: 'F8', checked: W.isOpen('picker'), action: () => W.toggle('picker') },
+    { label: 'Plugin store…', checked: W.isOpen('store'), action: () => BF.community.openStore() },
     { label: 'Close all windows', hint: 'F12', action: () => [...W.all.keys()].forEach((id) => { if (id !== 'playlist') W.toggle(id, false); }) },
     { label: 'Plugin editor', checked: W.isOpen('editor'), action: () => W.toggle('editor') },
     '-',

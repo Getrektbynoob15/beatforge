@@ -216,6 +216,23 @@
     loopShade.className = 'loop-shade';
     inner.append(loopShade);
     drawLoop();
+    (p.markers || []).forEach((m, mi) => {
+      const mk = document.createElement('div');
+      mk.className = 'time-marker';
+      mk.style.left = `${HEADW + m.beat * px}px`;
+      mk.textContent = m.name;
+      mk.title = `${m.name}. Click: jump here. Right-click: rename or remove. (Alt+T adds a marker, Alt+* / Alt+/ jump)`;
+      mk.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      mk.addEventListener('click', (ev) => { ev.stopPropagation(); BF.transport.startBeat = m.beat; if (BF.transport.playing) { BF.transport.stop(); BF.transport.play(); } BF.emit('transport'); });
+      mk.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        BF.ui.menuAt(mk, [
+          { label: 'Rename…', action: () => { const n = BF.ui.prompt('Marker name', m.name); if (n) BF.commit((q) => { q.markers[mi].name = n.slice(0, 40); }); } },
+          { label: 'Remove', action: () => BF.commit((q) => { q.markers.splice(mi, 1); }) },
+        ]);
+      });
+      ruler.append(mk);
+    });
     const start = document.createElement('div');
     start.className = 'start-mark';
     start.style.left = `${HEADW + BF.transport.startBeat * px}px`;
@@ -532,12 +549,80 @@
     });
   }
 
+  // ---------- more classic-DAW keys ----------
+  let clipboard = null, lastSnap = 1;
+  P.toggleSnap = function () {
+    if (P.snap) { lastSnap = P.snap; P.snap = 0; } else P.snap = lastSnap || 1;
+    if (snapSel) snapSel.value = String(P.snap);
+    BF.ui.toast(P.snap ? 'Snap on' : 'Snap off');
+  };
+  function moreKeys(e, mod, k, sel) {
+    const K = k.toLowerCase();
+    const stop = () => { e.preventDefault(); e.stopPropagation(); return true; };
+    const p = BF.project;
+    const editSel = (fn, msg) => { const s = sel(); if (!s.length) { BF.ui.toast('Select clips first (Ctrl+drag or the Select tool).'); return; } const ids = new Set(s.map((c) => c.id)); BF.commit((q) => q.clips.forEach((c) => { if (ids.has(c.id)) fn(c); })); if (msg) BF.ui.toast(msg); };
+    if (e.altKey && !mod && K === 'm') { stop(); editSel((c) => { if (e.shiftKey) delete c.muted; else c.muted = true; }); return true; }
+    if (e.altKey && !mod && K === 'p') { stop(); BF.win.toggle('picker'); return true; }
+    if (e.shiftKey && !mod && !e.altKey) {
+      if (K === 'i') { stop(); P.sel = new Set(p.clips.filter((c) => !P.sel.has(c.id)).map((c) => c.id)); markSel(); renderPanel(); return true; }
+      if (K === 'c') { // all clips of the same pattern / audio as the selection
+        stop();
+        const src = new Set(sel().map((c) => c.patternId || c.sampleId));
+        P.sel = new Set(p.clips.filter((c) => src.has(c.patternId || c.sampleId)).map((c) => c.id)); markSel(); renderPanel();
+        return true;
+      }
+      if (K === 'q') { stop(); const q = P.snap || 1; editSel((c) => { c.start = Math.max(0, Math.round(c.start / q) * q); }, 'Clip starts quantized'); return true; }
+      if (K === 'm') { // switch stretch mode of selected audio clips
+        stop();
+        const order = ['stretch', 'resample', 'fit'];
+        const first = sel().find((c) => c.kind === 'audio');
+        if (!first) { BF.ui.toast('Select an audio clip first.'); return true; }
+        const next = order[(order.indexOf(first.mode) + 1) % order.length];
+        editSel((c) => { if (c.kind === 'audio') { c.mode = next; c.len = 0; } }, `Stretch mode: ${{ stretch: 'Stretch (keep pitch)', resample: 'Resample', fit: 'Fit to tempo' }[next]}`);
+        return true;
+      }
+    }
+    if (!mod && !e.altKey && !e.shiftKey && (k === '7' || k === '8')) { stop(); editSel((c) => { if (c.kind === 'audio') c.pitch = Math.max(-24, Math.min(24, (c.pitch || 0) + (k === '8' ? 1 : -1))); }); return true; }
+    if (!mod && !e.altKey && !e.shiftKey && k === '9') { stop(); editSel((c) => { if (c.kind === 'audio') { if (c.reverse) delete c.reverse; else c.reverse = true; } }, 'Reversed'); return true; }
+    if (!mod && !e.altKey && k === 'Insert') { // slice the selected clips at the play position
+      stop();
+      const at = BF.transport.playing ? BF.transport.position() : BF.transport.startBeat || 0;
+      sel().forEach((c) => sliceClip(BF.project.clips.find((x) => x.id === c.id), at));
+      return true;
+    }
+    if (!mod && k === 'Home') { stop(); BF.transport.startBeat = 0; if (BF.transport.playing) { BF.transport.stop(); BF.transport.play(); } BF.emit('transport'); return true; }
+    if (!mod && !e.altKey && k === 'Backspace') { stop(); P.toggleSnap(); return true; }
+    if (!mod && (k === 'PageUp' || k === 'PageDown')) { stop(); setZoom(px * (k === 'PageUp' ? 1.25 : 0.8)); return true; }
+    if (mod && !e.shiftKey && K === 'd') { stop(); P.sel.clear(); markSel(); renderPanel(); return true; }
+    if (mod && !e.shiftKey && (K === 'c' || K === 'x')) {
+      stop();
+      const s = sel();
+      if (!s.length) return true;
+      const min = Math.min(...s.map((c) => c.start)), max = Math.max(...s.map((c) => c.start + clipLen(c)));
+      clipboard = { clips: s.map((c) => ({ ...c, start: c.start - min })), span: max - min };
+      if (K === 'x') { const ids = new Set(s.map((c) => c.id)); P.sel.clear(); BF.commit((q) => { q.clips = q.clips.filter((c) => !ids.has(c.id)); }); }
+      BF.ui.toast(`${s.length} clip${s.length > 1 ? 's' : ''} ${K === 'x' ? 'cut' : 'copied'}`);
+      return true;
+    }
+    if (mod && !e.shiftKey && K === 'v') {
+      stop();
+      if (!clipboard) return true;
+      const at0 = BF.transport.playing ? BF.transport.position() : (BF.transport.startBeat || 0);
+      const at = P.snap ? Math.round(at0 / P.snap) * P.snap : at0;
+      const copies = clipboard.clips.map((c) => ({ ...c, id: BF.uid('c'), start: c.start + at }));
+      BF.commit((q) => q.clips.push(...copies));
+      P.sel = new Set(copies.map((c) => c.id)); markSel(); renderPanel();
+      return true;
+    }
+    return false;
+  }
+
   // ---------- keyboard ----------
   function keys(e) {
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key;
     const sel = () => BF.project.clips.filter((c) => P.sel.has(c.id));
-    if ((k === 'Delete' || k === 'Backspace') && !mod) {
+    if (k === 'Delete' && !mod) {
       if (!P.sel.size) return;
       e.preventDefault(); e.stopPropagation();
       const ids = new Set(P.sel); P.sel.clear();
@@ -563,7 +648,9 @@
       e.preventDefault(); e.stopPropagation();
       const d = k === 'ArrowUp' ? -1 : 1;
       BF.commit((q) => q.clips.forEach((c) => { if (P.sel.has(c.id)) c.track = Math.min(BF.TRACKS - 1, Math.max(0, c.track + d)); }), `arrow-${k}`);
-    } else if (!mod) {
+    } else if (moreKeys(e, mod, k, sel)) {
+      // handled
+    } else if (!mod && !e.altKey && !e.shiftKey) {
       const t = { p: 'draw', b: 'paint', d: 'delete', c: 'slice', e: 'select', t: 'mute' }[k.toLowerCase()];
       if (t) { e.preventDefault(); e.stopPropagation(); P.setTool(t); }
     }

@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   const BF = window.BF;
-  const PR = (BF.piano = { tool: 'draw', snap: 1, sel: new Set(), typing: false });
+  const PR = (BF.piano = { tool: 'draw', snap: 1, sel: new Set(), typing: false, ghost: true });
   const ROW = 14; // px per key
   const KEYW = 58; // keyboard width
   const RULER = 20;
@@ -301,13 +301,14 @@
     const k = e.key;
     const selected = () => notes().filter((n) => PR.sel.has(n.id));
     const shift = (fn) => { if (!PR.sel.size) return; e.preventDefault(); e.stopPropagation(); edit((arr) => arr.forEach((n) => { if (PR.sel.has(n.id)) fn(n); }), `prk-${k}`); };
+    if (moreKeys(e, mod, k)) return;
     if (e.altKey && !mod) {
-      const op = { a: 'arp', s: 'strum', r: 'random', u: 'chop', g: 'glue', q: 'quantize', y: 'flip' }[k.toLowerCase()];
+      const op = { a: 'arp', s: 'strum', r: 'random', u: 'chop', g: 'glue', q: 'quantize', y: 'flip', f: 'flam' }[k.toLowerCase()];
       if (op) { e.preventDefault(); e.stopPropagation(); PR.op(op); return; }
     }
     if (mod && k.toLowerCase() === 'l') { e.preventDefault(); e.stopPropagation(); PR.op('legato'); return; }
     if (mod && k.toLowerCase() === 'b') { e.preventDefault(); e.stopPropagation(); PR.op('duplicate'); return; }
-    if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); e.stopPropagation(); const ids = new Set(PR.sel); PR.sel.clear(); edit((arr) => { for (let i = arr.length - 1; i >= 0; i--) if (ids.has(arr[i].id)) arr.splice(i, 1); }); }
+    if (k === 'Delete') { e.preventDefault(); e.stopPropagation(); const ids = new Set(PR.sel); PR.sel.clear(); edit((arr) => { for (let i = arr.length - 1; i >= 0; i--) if (ids.has(arr[i].id)) arr.splice(i, 1); }); }
     else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); e.stopPropagation(); PR.sel = new Set(notes().map((n) => n.id)); draw(); }
     else if (mod && k.toLowerCase() === 'd') { e.preventDefault(); e.stopPropagation(); PR.sel.clear(); draw(); }
     else if (mod && (k.toLowerCase() === 'c' || k.toLowerCase() === 'x')) {
@@ -344,6 +345,66 @@
   }
 
   // ---------- note tools (FL-style names and Alt shortcuts) ----------
+  // ---------- more classic-DAW keys ----------
+  let lastSnap = 1;
+  PR.toggleSnap = function () {
+    if (PR.snap) { lastSnap = PR.snap; PR.snap = 0; } else PR.snap = lastSnap || 1;
+    if (snapSel) snapSel.value = String(PR.snap);
+    BF.ui.toast(PR.snap ? 'Snap on' : 'Snap off');
+  };
+  function selectChannel(dir, withNotes) {
+    const p = BF.project, pt = BF.pattern();
+    let i = p.channels.findIndex((c) => c.id === p.selectedChannel);
+    for (let n = 0; n < p.channels.length; n++) {
+      i += dir;
+      if (i < 0 || i >= p.channels.length) return;
+      const c = p.channels[i];
+      if (!withNotes || (pt.notes[c.id] || []).length) { BF.setView((q) => { q.selectedChannel = c.id; }, 'select'); return; }
+    }
+  }
+  function moreKeys(e, mod, k) {
+    const K = k.toLowerCase();
+    const stop = () => { e.preventDefault(); e.stopPropagation(); return true; };
+    const ns = notes();
+    const select = (list) => { PR.sel = new Set(list.map((n) => n.id)); draw(); };
+    if (e.altKey && !mod && K === 'm') { stop(); PR.op(e.shiftKey ? 'unmuteSel' : 'mute'); return true; }
+    if (e.altKey && !mod && K === 'v') { stop(); PR.ghost = !PR.ghost; BF.ui.toast(`Ghost notes ${PR.ghost ? 'on' : 'off'}`); draw(); return true; }
+    if (e.altKey && !mod && (k === 'ArrowLeft' || k === 'ArrowRight')) { // nudge: a tenth of a step
+      if (!PR.sel.size) return false;
+      stop();
+      const d = k === 'ArrowLeft' ? -0.1 : 0.1;
+      edit((arr) => arr.forEach((n) => { if (PR.sel.has(n.id)) n.start = Math.max(0, Math.round((n.start + d) * 100) / 100); }), 'nudge');
+      return true;
+    }
+    if (e.shiftKey && !mod && !e.altKey) {
+      if (K === 'i') { stop(); select(ns.filter((n) => !PR.sel.has(n.id))); return true; }
+      if (K === 'r') { stop(); const pick = ns.filter(() => Math.random() < 0.5); select(pick.length || !ns.length ? pick : [ns[0]]); return true; }
+      if (K === 'm') { // select whole chords / note groups at random
+        stop();
+        const groups = new Map();
+        ns.forEach((n) => { const g2 = Math.round(n.start * 100); if (!groups.has(g2)) groups.set(g2, []); groups.get(g2).push(n); });
+        let pick = [...groups.values()].filter(() => Math.random() < 0.5).flat();
+        if (!pick.length && groups.size) pick = [...groups.values()][0];
+        select(pick);
+        return true;
+      }
+      if (K === 'c') { stop(); const keys = new Set(ns.filter((n) => PR.sel.has(n.id)).map((n) => n.key)); select(ns.filter((n) => keys.has(n.key))); return true; }
+      if (K === 'd') { stop(); PR.op('discard'); return true; }
+    }
+    if (mod && !e.altKey && !e.shiftKey && K === 'g') { stop(); PR.op('glue'); return true; }
+    if (mod && !e.altKey && !e.shiftKey && K === 'u') { stop(); PR.op('chop'); return true; }
+    if (mod && !e.altKey && !e.shiftKey && K === 'm') { stop(); document.getElementById('openInput')?.click(); return true; }
+    if (!mod && !e.altKey && k === 'Backspace') { stop(); PR.toggleSnap(); return true; }
+    if (!mod && (k === 'PageUp' || k === 'PageDown')) { stop(); setZoom(zoom * (k === 'PageUp' ? 1.25 : 0.8)); return true; }
+    if (e.shiftKey && !mod && e.code === 'Digit4') { stop(); sx = 0; setZoom((dims().w - KEYW - 10) / Math.max(4, BF.pattern().length)); return true; }
+    if (!mod && !e.altKey && !e.shiftKey && !PR.typing && ['g', 'k', 'h', 'j'].includes(K)) {
+      stop();
+      selectChannel(K === 'g' || K === 'h' ? -1 : 1, K === 'h' || K === 'j');
+      return true;
+    }
+    return false;
+  }
+
   PR.toolsMenu = () => [
     { label: 'Quick legato', hint: 'Ctrl+L', action: () => PR.op('legato') },
     { label: 'Arpeggiate (up)', hint: 'Alt+A', action: () => PR.op('arp', 'up') },
@@ -362,7 +423,12 @@
     { label: 'Velocity: fade out', action: () => PR.op('velramp', -1) },
     { label: 'Transpose up an octave', hint: 'Ctrl+↑', action: () => PR.op('transpose', 12) },
     { label: 'Transpose down an octave', hint: 'Ctrl+↓', action: () => PR.op('transpose', -12) },
+    { label: 'Flam', hint: 'Alt+F', action: () => PR.op('flam') },
+    { label: 'Mute selected notes', hint: 'Alt+M', action: () => PR.op('mute') },
+    { label: 'Unmute selected notes', hint: 'Alt+Shift+M', action: () => PR.op('unmuteSel') },
     { label: 'Unmute all notes', action: () => PR.op('unmute') },
+    { label: 'Discard note lengths', hint: 'Shift+D', action: () => PR.op('discard') },
+    { label: `Ghost notes ${PR.ghost ? 'on' : 'off'}`, hint: 'Alt+V', action: () => { PR.ghost = !PR.ghost; draw(); } },
   ];
 
   /** Run a note tool on the selected notes (or every note when nothing is selected). */
@@ -422,6 +488,13 @@
       else if (op === 'velramp') pick.forEach((n, i) => { const f = pick.length > 1 ? i / (pick.length - 1) : 1; n.vel = 0.2 + 0.8 * (arg > 0 ? f : 1 - f); });
       else if (op === 'transpose') pick.forEach((n) => { n.key = Math.min(127, Math.max(0, n.key + arg)); });
       else if (op === 'unmute') arr.forEach((n) => { delete n.mute; });
+      else if (op === 'mute') pick.forEach((n) => { n.mute = true; });
+      else if (op === 'unmuteSel') pick.forEach((n) => { delete n.mute; });
+      else if (op === 'discard') pick.forEach((n) => { n.len = Math.min(n.len, 0.5); });
+      else if (op === 'flam') {
+        const add = pick.map((n) => ({ ...n, id: BF.uid('n'), start: Math.max(0, n.start - 0.25), len: 0.25, vel: Math.max(0.05, n.vel * 0.6) })).filter((x, i) => x.start < pick[i].start);
+        arr.push(...add);
+      }
     });
     if (made) PR.sel = new Set(made.map((n) => n.id));
     draw();
@@ -494,7 +567,7 @@
 
     // ghost notes of other channels
     BF.project.channels.forEach((o) => {
-      if (!c || o.id === c.id) return;
+      if (!c || o.id === c.id || !PR.ghost) return;
       (pt.notes[o.id] || []).forEach((n) => { g.fillStyle = 'rgba(255,255,255,.07)'; g.fillRect(xOf(n.start), yOf(n.key) + 2, Math.max(2, n.len * zoom - 1), ROW - 4); });
     });
     // notes

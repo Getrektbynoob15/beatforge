@@ -183,6 +183,7 @@
     T.sources.forEach((s) => { try { s.stop(now + 0.02); } catch { /* ended */ } });
     T.sources = [];
     BF.recorder.onStop();
+    if (BF.community) BF.community.stopAll();
     // drop booked automation ramps, go back to the static mixer/channel values
     setTimeout(() => BF.audio.sync(BF.audio.graph, BF.project), 20);
     BF.emit('transport');
@@ -220,6 +221,7 @@
       if (q >= total) continue;
       ctx.suspend(q / rate).then(() => { fns.forEach((f) => f()); ctx.resume(); });
     }
+    if (BF.community) BF.community.flush(ctx);
     return ctx.startRendering();
   };
 })();

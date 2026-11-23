@@ -17,37 +17,18 @@
   A.reversedCache = new Map();
   A.FADE = 0.004;
 
-  // Audio-thread processors (loaded from a blob, so it also works from file:// and offline).
-  const WORKLET = `
-  class BfEnvelope extends AudioWorkletProcessor {
-    static get parameterDescriptors() { return [
-      { name: 'attack', defaultValue: 0.002, minValue: 0.0001, maxValue: 1, automationRate: 'k-rate' },
-      { name: 'release', defaultValue: 0.18, minValue: 0.005, maxValue: 3, automationRate: 'k-rate' },
-      { name: 'sens', defaultValue: 4, minValue: 0, maxValue: 50, automationRate: 'k-rate' },
-      { name: 'amount', defaultValue: 0.75, minValue: 0, maxValue: 1, automationRate: 'k-rate' } ]; }
-    constructor() { super(); this.env = 0; }
-    process(inputs, outputs, p) {
-      const out = outputs[0][0]; const inp = inputs[0];
-      const a = Math.exp(-1 / (p.attack[0] * sampleRate)), r = Math.exp(-1 / (p.release[0] * sampleRate));
-      const sens = p.sens[0], amount = p.amount[0];
-      let env = this.env;
-      for (let i = 0; i < out.length; i++) {
-        let x = 0;
-        for (let c = 0; c < inp.length; c++) { const v = Math.abs(inp[c][i]); if (v > x) x = v; }
-        env = x > env ? a * env + (1 - a) * x : r * env + (1 - r) * x;
-        out[i] = -Math.min(1, env * sens) * amount;
-      }
-      this.env = env;
-      return true;
-    }
-  }
-  registerProcessor('bf-envelope', BfEnvelope);`;
+  // Audio-thread processors live in js/worklet-host.js. On the website the security policy forbids blob: scripts,
+  // so the file itself is loaded; the desktop app / file:// cannot fetch files, so it uses a blob of the same code.
   let workletUrl = null;
+  const hostUrl = () => {
+    if (/^https?:$/.test(location.protocol)) return new URL('js/worklet-host.js?v=' + (window.BF_VERSION || '1'), location.href).href;
+    return (workletUrl = workletUrl || URL.createObjectURL(new Blob([BF.WORKLET_SRC], { type: 'application/javascript' })));
+  };
   A.loadWorklets = async function (ctx) {
-    if (ctx.__bfWorklets || !ctx.audioWorklet) return;
-    workletUrl = workletUrl || URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
-    await ctx.audioWorklet.addModule(workletUrl);
-    ctx.__bfWorklets = true;
+    if (!ctx.audioWorklet) return;
+    if (!ctx.__bfWorklets) ctx.__bfWorklets = ctx.audioWorklet.addModule(hostUrl());
+    await ctx.__bfWorklets;
+    if (BF.community) await BF.community.loadInto(ctx);
   };
 
   A.ensure = function () {
@@ -153,6 +134,7 @@
     }
   }
 
+  A.chanStrip = (g, ch) => chanStrip(g, ch);
   function chanStrip(g, ch) {
     let s = g.channels.get(ch.id);
     if (!s) {
@@ -193,6 +175,7 @@
   A.note = function (g, ch, time, key, vel, dur, preview = false, params = null) {
     const def = BF.plugins.get(ch.plugin);
     if (!def || def.kind !== 'instrument') return;
+    if (def.ext) return BF.community.note(g, ch, time, key + ch.pitch, vel, dur, preview ? 'preview' : 'main', params);
     let out;
     if (preview) {
       // preview: channel volume/pan via a throwaway strip straight into the insert's preview input
@@ -241,15 +224,15 @@
 
   /** {buffer, rate}: what to play for an audio clip. Stretch keeps pitch (plus the pitch knob); Resample changes both. */
   A.clipRender = function (c, bpm) {
-    const buf = A.buffers.get(c.sampleId);
-    if (!buf) return null;
+    if (!A.buffers.get(c.sampleId)) return null;
+    const buf = c.reverse ? A.reversed(c.sampleId) : A.buffers.get(c.sampleId);
     const speed = A.clipSpeed(c, bpm);
     const shift = Math.pow(2, (c.pitch || 0) / 12);
     if (c.mode === 'resample') return { buffer: buf, rate: speed * shift };
     // stretch: time factor = speed / shift, then play back at `shift` to move the pitch
     const factor = Math.round((speed / shift) * 1000) / 1000;
     if (Math.abs(factor - 1) < 0.002) return { buffer: buf, rate: shift };
-    const key = `${c.sampleId}@${factor}`;
+    const key = `${c.sampleId}${c.reverse ? ':rev' : ''}@${factor}`;
     let s = A.stretched.get(key);
     if (!s) {
       s = BF.timeStretch(buf, factor);

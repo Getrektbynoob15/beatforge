@@ -79,7 +79,22 @@
       label: 'Sampler (load audio…)', hint: 'Make a Sampler channel from an audio file', icon: '🎚',
       use: () => BF.io.pickFiles((f) => BF.io.importToRack(f)),
     }] });
-    out.push({ name: 'Effects', items: BF.plugins.list('effect').map((d) => ({
+    const ext = (kind) => BF.plugins.list(kind).filter((d) => d.ext && !d.missing);
+    out.push({ name: 'Plugins · Community', items: [
+      { label: 'Plugin store…', icon: '🛒', hint: 'Browse and install community plugins (checked by GRBN Studios before they show up)', use: () => BF.community.openStore() },
+      ...ext('instrument').map((d) => ({
+        label: d.name, icon: '🧩', useLabel: 'Add as channel', hint: `${d.name} by ${d.entry.meta.author} (community). Click to hear it, double-click to add a channel, or drag it onto the channel rack.`,
+        drag: { kind: 'instrument', plugin: d.id, name: d.name },
+        use: () => BF.rack.addChannel(d.id, null, d.name),
+        preview: previewChord(d.id, null, d.name),
+      })),
+      ...ext('effect').map((d) => ({
+        label: d.name, icon: '🧩', hint: `${d.name} by ${d.entry.meta.author} (community effect): click to add to the selected mixer insert, or drag it onto a mixer strip.`,
+        drag: { kind: 'effect', plugin: d.id },
+        use: () => B.addEffect(BF.mixer.selected, d.id),
+      })),
+    ] });
+    out.push({ name: 'Effects', items: BF.plugins.list('effect').filter((d) => !d.ext).map((d) => ({
       label: d.name, hint: `${d.name}: click to add to the selected mixer insert, or drag it onto a mixer strip.`, icon: '✨',
       drag: { kind: 'effect', plugin: d.id },
       use: () => B.addEffect(BF.mixer.selected, d.id),
@@ -153,6 +168,17 @@
           b.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); it.use(); } });
           b.addEventListener('contextmenu', (e) => { e.preventDefault(); BF.ui.menu(e.clientX, e.clientY, [{ label: 'Preview', action: it.preview }, { label: it.useLabel || 'Add', action: it.use }]); });
         } else b.addEventListener('click', () => it.use());
+        b._preview = it.preview || null;
+        // ↑ ↓ move through the list; Shift+↑ ↓ also plays each sound (like a sample browser)
+        b.addEventListener('keydown', (e) => {
+          if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+          e.preventDefault(); e.stopPropagation();
+          const all = [...list.querySelectorAll('.br-item')];
+          const next = all[all.indexOf(b) + (e.key === 'ArrowUp' ? -1 : 1)];
+          if (!next) return;
+          next.focus();
+          if (e.shiftKey && next._preview) next._preview();
+        });
         if (it.drag) {
           b.draggable = true;
           b.addEventListener('dragstart', (e) => { e.dataTransfer.setData(MIME, JSON.stringify(it.drag)); e.dataTransfer.effectAllowed = 'copy'; });

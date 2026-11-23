@@ -269,3 +269,24 @@ input[type=range] { accent-color: var(--accent); }
 .dlg h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 14px 0 4px; }
 .dlg { max-height: 86vh; overflow-y: auto; }
 .dlg input[type=text] { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 240px; }
+
+/* ---------- plugin store ---------- */
+.store { display: flex; flex-direction: column; height: 100%; padding: 10px 12px; gap: 8px; overflow: hidden; }
+.store-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.store-bar a.btn { text-decoration: none; color: var(--accent); }
+.store-search { flex: 1 1 180px; min-width: 140px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+.store-status { margin: 0; color: var(--muted); font-size: 12px; }
+.store-list { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; align-content: start; padding-bottom: 6px; }
+.store-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.store-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.store-top b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.store-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; border-radius: 10px; padding: 1px 8px; border: 1px solid var(--line); color: var(--muted); flex: none; }
+.store-kind.k-instrument { color: var(--accent); border-color: var(--accent); }
+.store-kind.k-effect { color: #c792ff; border-color: #c792ff; }
+.store-by { margin: 0; color: var(--muted); font-size: 12px; }
+.store-desc { margin: 0; flex: 1; line-height: 1.45; }
+.store-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.store-note { font-size: 11px; color: var(--muted); }
+.store-err { font-size: 11px; color: var(--danger); flex-basis: 100%; }
+.store-empty { color: var(--muted); }
+.time-marker { position: absolute; top: 0; height: 22px; max-width: 160px; padding: 3px 6px 0 5px; border-left: 2px solid #ffc94d; color: #ffc94d; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: linear-gradient(90deg, rgba(255, 201, 77, .14), transparent); z-index: 2; }

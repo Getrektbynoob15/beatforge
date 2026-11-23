@@ -131,6 +131,8 @@
     p.bpm = Math.round(clamp(raw.bpm, 40, 300, 130) * 100) / 100;
     p.swing = clamp(raw.swing, 0, 1, 0);
     p.songBars = Math.round(clamp(raw.songBars, 1, 512, 16));
+    p.markers = (Array.isArray(raw.markers) ? raw.markers : []).slice(0, 200).filter((m) => m && Number.isFinite(+m.beat))
+      .map((m) => ({ beat: clamp(m.beat, 0, 4096, 0), name: str(m.name, 'Marker', 40) })).sort((a, b) => a.beat - b.beat);
 
     p.samples = {};
     if (raw.samples && typeof raw.samples === 'object') {
@@ -138,6 +140,10 @@
         if (s && typeof s.base64 === 'string' && s.base64.length) p.samples[id] = { name: str(s.name, 'audio', 120), mime: str(s.mime, 'audio/wav'), base64: s.base64 };
       }
     }
+    // community plugins this computer does not have: keep them as silent placeholders
+    const ensureExt = (id, kind) => { if (typeof id === 'string' && /^ext:[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(id) && !BF.plugins.has(id) && BF.community) BF.community.placeholder(id, kind); };
+    (Array.isArray(raw.channels) ? raw.channels : []).forEach((c) => c && ensureExt(c.plugin, 'instrument'));
+    (Array.isArray(raw.mixer) ? raw.mixer : []).forEach((m) => m && Array.isArray(m.fx) && m.fx.forEach((f) => f && ensureExt(f.plugin, 'effect')));
     p.channels = (Array.isArray(raw.channels) ? raw.channels : []).slice(0, 128).filter((c) => c && BF.plugins.has(c.plugin) && BF.plugins.get(c.plugin).kind === 'instrument').map((c) => ({
       id: str(c.id, BF.uid('ch')),
       name: str(c.name, 'Channel'),
@@ -225,6 +231,7 @@
         pitch: Math.round(clamp(c.pitch, -24, 24, 0)),
         srcBpm: clamp(c.srcBpm, 40, 300, 120),
         gain: clamp(c.gain, 0, 2, 1),
+        ...(c.reverse ? { reverse: true } : {}),
       }),
     })).concat(autoClips);
     return p;
