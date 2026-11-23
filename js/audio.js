@@ -1,116 +1,228 @@
-/* audio.js: AudioContext, the mixer graph, and decoded/stretched audio caches.
- * The same graph builder is used for live playback and for the offline WAV export. */
+/* audio.js: AudioContext, the mixer graph, effect chains, channel strips, and audio caches.
+ * The same graph builder runs live and inside an OfflineAudioContext for WAV export.
+ *
+ *  channel: instrument voices -> chan gain (volume) -> chan pan -> transport[insert] -> insert.input
+ *  insert:  input -> fx1 -> fx2 ... -> fader -> pan -> meter -> master.input   (master -> destination)
+ *  audio clip -> transport[track.insert] -> insert.input
+ *  previews skip the transport gain, so Stop never cuts a key you are holding. */
 (function () {
   'use strict';
   const BF = (window.BF = window.BF || {});
   const A = (BF.audio = {});
 
   A.ctx = null;
-  A.buffers = new Map(); // sampleId -> AudioBuffer (decoded)
-  A.stretched = new Map(); // `${sampleId}@${speed}` -> AudioBuffer
-  A.FADE = 0.004; // 4 ms fades on every sound, to avoid clicks
+  A.graph = null;
+  A.buffers = new Map(); // sampleId -> AudioBuffer
+  A.stretched = new Map(); // `${sampleId}@${factor}` -> AudioBuffer
+  A.reversedCache = new Map();
+  A.FADE = 0.004;
 
   A.ensure = function () {
     if (!A.ctx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       A.ctx = new Ctx({ latencyHint: 'interactive' });
       A.graph = A.buildGraph(A.ctx);
-      A.updateGraph(A.graph, BF.project, A.ctx);
+      A.sync(A.graph, BF.project);
     }
     if (A.ctx.state === 'suspended') A.ctx.resume();
     return A.ctx;
   };
 
-  /**
-   * channel strip: input -> gain(volume * audible) -> panner -> master
-   * master: transport gain (used to fade out on Stop) -> master gain -> limiter -> destination
-   */
+  const isOffline = (ctx) => typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext;
+  function setP(ctx, param, v) {
+    if (isOffline(ctx)) { param.value = v; return; }
+    param.cancelScheduledValues(ctx.currentTime);
+    param.setTargetAtTime(v, ctx.currentTime, 0.012);
+  }
+  A.setP = setP;
+
   A.buildGraph = function (ctx) {
-    const master = ctx.createGain();
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -3;
-    limiter.knee.value = 0;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.003;
-    limiter.release.value = 0.1;
-    master.connect(limiter).connect(ctx.destination);
-    const transport = ctx.createGain();
-    transport.connect(master);
-    const preview = ctx.createGain(); // previews bypass the transport so Stop doesn't kill them
-    preview.connect(master);
-    const strip = () => {
+    const inserts = [];
+    for (let i = 0; i <= BF.INSERTS; i++) {
       const input = ctx.createGain();
+      const fader = ctx.createGain();
       const pan = ctx.createStereoPanner();
-      input.connect(pan).connect(transport);
-      return { input, pan };
-    };
-    return { master, transport, preview, tracks: Array.from({ length: 8 }, strip), lanes: Array.from({ length: 8 }, strip) };
+      const meter = ctx.createAnalyser();
+      meter.fftSize = 512;
+      const transport = ctx.createGain();
+      const preview = ctx.createGain();
+      transport.connect(input);
+      preview.connect(input);
+      fader.connect(pan).connect(meter);
+      inserts.push({ input, fader, pan, meter, transport, preview, fx: [], fxKey: null });
+    }
+    inserts[0].meter.connect(ctx.destination);
+    for (let i = 1; i <= BF.INSERTS; i++) inserts[i].meter.connect(inserts[0].input);
+    return { ctx, inserts, channels: new Map() };
   };
 
-  /** Push mixer values from the project into a graph. Smooth changes so sliders don't zipper. */
-  A.updateGraph = function (g, p, ctx) {
-    const t = ctx.currentTime;
-    const set = (param, v) => { param.cancelScheduledValues(t); param.setTargetAtTime(v, t, 0.015); };
-    const setNow = (param, v) => { param.value = v; };
-    const s = ctx instanceof OfflineAudioContext ? setNow : set;
-    s(g.master.gain, p.masterVolume);
-    p.tracks.forEach((tr, i) => { s(g.tracks[i].input.gain, BF.audible(tr) ? tr.volume : 0); s(g.tracks[i].pan.pan, tr.pan); });
-    p.lanes.forEach((ln, i) => { s(g.lanes[i].input.gain, BF.audible(ln) ? ln.volume : 0); s(g.lanes[i].pan.pan, ln.pan); });
-  };
+  /** Rebuild an insert's effect chain when the list of effects changed; otherwise just push parameters. */
+  function syncFx(g, ins, m, bpm) {
+    const key = m.fx.map((f) => `${f.id}:${f.plugin}:${f.bypass ? 1 : 0}`).join('|');
+    if (key !== ins.fxKey) {
+      try { ins.input.disconnect(); } catch { /* */ }
+      ins.fx.forEach((x) => { try { x.inst.output.disconnect(); } catch { /* */ } });
+      const keep = new Map(ins.fx.map((x) => [x.id, x]));
+      const next = [];
+      m.fx.forEach((f) => {
+        let x = keep.get(f.id);
+        if (x && x.plugin === f.plugin) keep.delete(f.id);
+        else x = { id: f.id, plugin: f.plugin, inst: BF.plugins.get(f.plugin).create(g.ctx) };
+        next.push(x);
+      });
+      keep.forEach((x) => x.inst.dispose());
+      let node = ins.input;
+      next.forEach((x, i) => {
+        if (m.fx[i].bypass) return;
+        node.connect(x.inst.input);
+        node = x.inst.output;
+      });
+      node.connect(ins.fader);
+      ins.fx = next;
+      ins.fxKey = key;
+    }
+    ins.fx.forEach((x, i) => x.inst.set(m.fx[i].params, bpm));
+  }
 
-  /** Decoded buffer for a clip at its speed (stretched copies are cached). */
-  A.clipBuffer = function (ctx, clip) {
-    const buf = A.buffers.get(clip.sampleId);
-    if (!buf) return null;
-    const speed = Math.round(clip.speed * 100) / 100;
-    if (speed === 1) return buf;
-    const key = `${clip.sampleId}@${speed}`;
-    let s = A.stretched.get(key);
+  function chanStrip(g, ch) {
+    let s = g.channels.get(ch.id);
     if (!s) {
-      s = BF.timeStretch(ctx, buf, speed);
-      A.stretched.set(key, s);
+      const gain = g.ctx.createGain(), pan = g.ctx.createStereoPanner();
+      gain.connect(pan);
+      s = { gain, pan, insert: -1 };
+      g.channels.set(ch.id, s);
     }
     return s;
+  }
+
+  /** Push the whole mixer/channel state into a graph. Cheap enough to run on every change. */
+  A.sync = function (g, p) {
+    const ctx = g.ctx;
+    p.mixer.forEach((m, i) => {
+      const ins = g.inserts[i];
+      setP(ctx, ins.fader.gain, BF.insertAudible(i, p) ? m.volume : 0);
+      setP(ctx, ins.pan.pan, m.pan);
+      syncFx(g, ins, m, p.bpm);
+    });
+    const live = new Set();
+    p.channels.forEach((ch) => {
+      live.add(ch.id);
+      const s = chanStrip(g, ch);
+      setP(ctx, s.gain.gain, ch.mute ? 0 : ch.volume);
+      setP(ctx, s.pan.pan, ch.pan);
+      if (s.insert !== ch.insert) {
+        try { s.pan.disconnect(); } catch { /* */ }
+        s.pan.connect(g.inserts[ch.insert].transport);
+        s.insert = ch.insert;
+      }
+    });
+    for (const [id, s] of g.channels) if (!live.has(id)) { try { s.pan.disconnect(); s.gain.disconnect(); } catch { /* */ } g.channels.delete(id); }
   };
 
-  /** Length of a clip in seconds, after stretching. */
-  A.clipSeconds = function (clip) {
-    const buf = A.buffers.get(clip.sampleId);
-    return buf ? buf.duration / clip.speed : 0;
+  /** Book one note of a channel's instrument into graph `g`. */
+  A.note = function (g, ch, time, key, vel, dur, preview = false) {
+    const def = BF.plugins.get(ch.plugin);
+    if (!def || def.kind !== 'instrument') return;
+    let out;
+    if (preview) {
+      // preview: channel volume/pan via a throwaway strip straight into the insert's preview input
+      const gn = g.ctx.createGain(), pn = g.ctx.createStereoPanner();
+      gn.gain.value = ch.volume; pn.pan.value = ch.pan;
+      gn.connect(pn).connect(g.inserts[ch.insert].preview);
+      out = gn;
+      setTimeout(() => { try { pn.disconnect(); } catch { /* */ } }, (dur + 8) * 1000);
+    } else {
+      out = chanStrip(g, ch).gain;
+    }
+    def.play(g.ctx, out, ch.params, time, key + ch.pitch, vel, dur);
   };
 
-  /** Play a buffer with short fades. Returns the source node. */
-  A.playBuffer = function (ctx, buffer, dest, when, offset = 0, duration = null) {
+  A.previewNote = function (ch, key, vel = 0.8, dur = 0.35) {
+    const ctx = A.ensure();
+    A.note(A.graph, ch, ctx.currentTime + 0.005, key, vel, dur, true);
+  };
+
+  // ---------- audio clips ----------
+  A.reversed = function (sampleId) {
+    let r = A.reversedCache.get(sampleId);
+    if (!r) {
+      const b = A.buffers.get(sampleId);
+      r = new AudioBuffer({ length: b.length, numberOfChannels: b.numberOfChannels, sampleRate: b.sampleRate });
+      for (let c = 0; c < b.numberOfChannels; c++) { const d = b.getChannelData(c).slice().reverse(); r.copyToChannel(d, c); }
+      A.reversedCache.set(sampleId, r);
+    }
+    return r;
+  };
+
+  /** Effective speed of an audio clip (Fit mode follows the project tempo). */
+  A.clipSpeed = (c, bpm = BF.project.bpm) => (c.mode === 'fit' ? BF.clamp(bpm / (c.srcBpm || bpm), 0.25, 4, 1) : c.speed);
+
+  /** Length of an audio clip in seconds when it plays at its speed (before trimming). */
+  A.clipNaturalSec = function (c, bpm) {
+    const b = A.buffers.get(c.sampleId);
+    return b ? b.duration / A.clipSpeed(c, bpm) : 0;
+  };
+  /** Length in beats as shown in the playlist (trimmed length if set). */
+  A.clipBeats = function (c, bpm = BF.project.bpm) {
+    if (c.kind === 'pattern') return c.len;
+    const nat = (A.clipNaturalSec(c, bpm) * bpm) / 60;
+    return c.len > 0 ? Math.min(c.len, nat) : nat;
+  };
+
+  /** {buffer, rate}: what to play for an audio clip. Stretch keeps pitch (plus the pitch knob); Resample changes both. */
+  A.clipRender = function (c, bpm) {
+    const buf = A.buffers.get(c.sampleId);
+    if (!buf) return null;
+    const speed = A.clipSpeed(c, bpm);
+    const shift = Math.pow(2, (c.pitch || 0) / 12);
+    if (c.mode === 'resample') return { buffer: buf, rate: speed * shift };
+    // stretch: time factor = speed / shift, then play back at `shift` to move the pitch
+    const factor = Math.round((speed / shift) * 1000) / 1000;
+    if (Math.abs(factor - 1) < 0.002) return { buffer: buf, rate: shift };
+    const key = `${c.sampleId}@${factor}`;
+    let s = A.stretched.get(key);
+    if (!s) {
+      s = BF.timeStretch(buf, factor);
+      A.stretched.set(key, s);
+    }
+    return { buffer: s, rate: shift };
+  };
+
+  /** Play an audio clip (from `offsetSec` into it) at `when` into `dest`. Returns the source. */
+  A.playClip = function (ctx, c, dest, when, offsetSec, bpm) {
+    const r = A.clipRender(c, bpm);
+    if (!r) return null;
+    const totalSec = (A.clipBeats(c, bpm) * 60) / bpm;
+    const len = totalSec - offsetSec;
+    if (len <= 0.003) return null;
     const src = ctx.createBufferSource();
-    src.buffer = buffer;
+    src.buffer = r.buffer;
+    src.playbackRate.value = r.rate;
     const env = ctx.createGain();
-    const len = duration == null ? buffer.duration - offset : Math.min(duration, buffer.duration - offset);
-    if (len <= 0) return null;
     const f = Math.min(A.FADE, len / 2);
     env.gain.setValueAtTime(0, when);
-    env.gain.linearRampToValueAtTime(1, when + f);
-    env.gain.setValueAtTime(1, when + len - f);
+    env.gain.linearRampToValueAtTime(c.gain ?? 1, when + f);
+    env.gain.setValueAtTime(c.gain ?? 1, when + len - f);
     env.gain.linearRampToValueAtTime(0, when + len);
     src.connect(env).connect(dest);
-    src.start(when, offset, len);
-    src.onended = () => { try { env.disconnect(); } catch { /* already gone */ } };
+    src.start(when, offsetSec * r.rate);
+    src.stop(when + len + 0.01);
+    src.onended = () => { try { env.disconnect(); } catch { /* */ } };
     return src;
   };
 
-  // ---------- preview (clips in the playlist) ----------
+  // ---------- preview of playlist audio clips ----------
   let previewSrc = null;
-  A.preview = function (clip) {
+  A.previewClip = function (c) {
     const ctx = A.ensure();
     A.stopPreview();
-    const buf = A.clipBuffer(ctx, clip);
-    if (!buf) return;
-    previewSrc = A.playBuffer(ctx, buf, A.graph.preview, ctx.currentTime + 0.01, 0, Math.min(buf.duration, 8));
+    const t = BF.project.tracks[c.track];
+    previewSrc = A.playClip(ctx, { ...c, len: Math.min(A.clipBeats(c), (8 * BF.project.bpm) / 60) }, A.graph.inserts[t ? t.insert || 0 : 0].preview, ctx.currentTime + 0.01, 0, BF.project.bpm);
   };
   A.stopPreview = function () {
-    if (previewSrc) { try { previewSrc.stop(); } catch { /* not started */ } previewSrc = null; }
+    if (previewSrc) { try { previewSrc.stop(); } catch { /* */ } previewSrc = null; }
   };
 
-  /** Decode bytes into an AudioBuffer, with friendly errors. */
   A.decode = async function (arrayBuffer) {
     const ctx = A.ensure();
     try {
@@ -118,5 +230,16 @@
     } catch {
       throw new Error('This file could not be decoded. Use WAV or MP3 (OGG/FLAC work in most browsers).');
     }
+  };
+
+  /** Peak level (0..1+) of an insert's meter, for the mixer UI. */
+  const meterBuf = new Float32Array(512);
+  A.peak = function (i) {
+    if (!A.graph) return 0;
+    const m = A.graph.inserts[i].meter;
+    m.getFloatTimeDomainData(meterBuf);
+    let pk = 0;
+    for (let k = 0; k < meterBuf.length; k++) { const v = Math.abs(meterBuf[k]); if (v > pk) pk = v; }
+    return pk;
   };
 })();

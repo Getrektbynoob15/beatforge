@@ -10,80 +10,70 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo" aria-hidden="true">◆</span> BeatForge</div>
+    <nav class="menus" aria-label="Menus">
+      <button class="menu-btn" id="menuFile" aria-haspopup="menu">File</button>
+      <button class="menu-btn" id="menuEdit" aria-haspopup="menu">Edit</button>
+      <button class="menu-btn" id="menuView" aria-haspopup="menu">View</button>
+      <button class="menu-btn" id="menuHelp" aria-haspopup="menu">Help</button>
+    </nav>
 
     <div class="transport" role="group" aria-label="Transport">
-      <button id="playBtn" class="btn accent" aria-keyshortcuts="Space" title="Play / Stop (Space)">▶ Play</button>
-      <div class="seg" role="radiogroup" aria-label="Play mode">
-        <button id="modePattern" role="radio" aria-checked="true" class="seg-btn on" title="Loop the step pattern">Pattern</button>
-        <button id="modeSong" role="radio" aria-checked="false" class="seg-btn" title="Play the playlist from start to end">Song</button>
+      <div class="seg" role="radiogroup" aria-label="Play mode (L)">
+        <button id="modePattern" role="radio" aria-checked="true" class="seg-btn on" title="Pattern mode: loop the current pattern (L)">PAT</button>
+        <button id="modeSong" role="radio" aria-checked="false" class="seg-btn" title="Song mode: play the playlist (L)">SONG</button>
       </div>
+      <button id="playBtn" class="btn accent play" aria-keyshortcuts="Space" title="Play / Stop (Space)">▶</button>
+      <button id="stopBtn" class="btn" title="Stop and go back to the start">■</button>
       <label class="field">BPM
-        <input id="bpm" type="number" min="60" max="200" step="1" value="120" aria-label="Tempo in beats per minute">
+        <input id="bpm" type="number" min="40" max="300" step="0.1" value="130" aria-label="Tempo in beats per minute">
       </label>
-      <label class="field">Bars
-        <input id="songBars" type="number" min="1" max="64" step="1" value="8" aria-label="Song length in bars">
+      <div class="time" aria-label="Position (bar.beat.step)"><span id="posText">1.1.1</span></div>
+      <label class="field pat-field">Pattern
+        <select id="patSelect" aria-label="Current pattern (numpad + and -)"></select>
       </label>
-      <div class="time" aria-live="off"><span id="posText">1.1.1</span></div>
     </div>
 
-    <div class="filebar" role="group" aria-label="Project">
-      <button id="undoBtn" class="btn" title="Undo (Ctrl+Z)" aria-keyshortcuts="Control+Z">↶ Undo</button>
-      <button id="redoBtn" class="btn" title="Redo (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z">↷ Redo</button>
-      <button id="newBtn" class="btn" title="New empty project">New</button>
-      <button id="openBtn" class="btn" title="Open a .beatforge.json project (Ctrl+O)" aria-keyshortcuts="Control+O">Open</button>
-      <button id="saveBtn" class="btn" title="Save project as .json (Ctrl+S)" aria-keyshortcuts="Control+S">Save</button>
-      <button id="exportBtn" class="btn accent-outline" title="Render the song to a WAV file">Export WAV</button>
-      <input id="openInput" type="file" accept=".json,application/json" hidden>
+    <div class="winbtns" role="group" aria-label="Windows">
+      <button class="btn small" data-open="playlist" title="Playlist (F5)">Playlist <kbd>F5</kbd></button>
+      <button class="btn small" data-open="rack" title="Channel rack (F6)">Channel rack <kbd>F6</kbd></button>
+      <button class="btn small" data-open="piano" title="Piano roll (F7)">Piano roll <kbd>F7</kbd></button>
+      <button class="btn small" data-open="mixer" title="Mixer (F9)">Mixer <kbd>F9</kbd></button>
+    </div>
+    <div class="undo">
+      <button id="undoBtn" class="btn small icon" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+      <button id="redoBtn" class="btn small icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
     </div>
   </header>
 
-  <main class="layout">
-    <section class="panel" aria-labelledby="seqTitle">
-      <div class="panel-head">
-        <h2 id="seqTitle">Step sequencer <small>8 tracks × 16 steps · click a cell to switch it on</small></h2>
-        <button id="clearPattern" class="btn small" title="Switch every step off">Clear pattern</button>
-      </div>
-      <div id="sequencer" class="sequencer" role="grid" aria-label="Step sequencer"></div>
-    </section>
+  <main id="workspace" class="workspace" aria-label="Workspace"></main>
 
-    <section class="panel" aria-labelledby="plTitle">
-      <div class="panel-head">
-        <h2 id="plTitle">Playlist <small>drop WAV/MP3 files on a lane · drag clips to move · click to preview</small></h2>
-        <div class="row">
-          <button id="importBtn" class="btn small" title="Import audio onto the first lane">Import audio…</button>
-          <input id="importInput" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a" multiple hidden>
-        </div>
-      </div>
-      <div id="playlist" class="playlist"></div>
-      <div id="clipPanel" class="clip-panel" hidden>
-        <strong id="clipName">Clip</strong>
-        <label class="field">Speed <input id="clipSpeed" type="range" min="50" max="200" step="1" value="100" aria-describedby="clipSpeedVal"></label>
-        <output id="clipSpeedVal">100%</output>
-        <button id="clipSpeedReset" class="btn small">100%</button>
-        <button id="clipPreview" class="btn small">▶ Preview</button>
-        <button id="clipDelete" class="btn small danger" title="Delete clip (Delete key)">Delete</button>
-        <span class="hint">Speed changes tempo, not pitch.</span>
-      </div>
-    </section>
-
-    <section class="panel" aria-labelledby="mixTitle">
-      <div class="panel-head"><h2 id="mixTitle">Mixer <small>volume · pan · M = mute · S = solo</small></h2></div>
-      <div id="mixer" class="mixer"></div>
-    </section>
-  </main>
-
+  <input id="openInput" type="file" accept=".json,application/json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div id="busy" class="busy" hidden><div class="busy-box" role="alert"><span class="spinner" aria-hidden="true"></span> <span id="busyText">Working…</span></div></div>
+  <dialog id="helpDlg" class="dlg" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">Keyboard shortcuts</h2>
+    <div id="helpBody"></div>
+    <form method="dialog"><button class="btn accent">Close</button></form>
+  </dialog>
 
+  <script src="js/plugins/registry.js"></script>
+  <script src="js/synth.js"></script>
+  <script src="js/plugins/instruments.js"></script>
+  <script src="js/plugins/effects.js"></script>
   <script src="js/state.js"></script>
   <script src="js/wav.js"></script>
   <script src="js/stretch.js"></script>
   <script src="js/audio.js"></script>
-  <script src="js/synth.js"></script>
   <script src="js/scheduler.js"></script>
-  <script src="js/sequencer.js"></script>
+  <script src="js/ui/knob.js"></script>
+  <script src="js/ui/menu.js"></script>
+  <script src="js/ui/windows.js"></script>
+  <script src="js/patterns.js"></script>
+  <script src="js/channelrack.js"></script>
+  <script src="js/pianoroll.js"></script>
   <script src="js/playlist.js"></script>
   <script src="js/mixer.js"></script>
+  <script src="js/editor.js"></script>
   <script src="js/io.js"></script>
   <script src="app.js"></script>
 </body>

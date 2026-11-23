@@ -1,53 +1,80 @@
 /* scheduler.js: look-ahead transport.
- * A timer wakes every 25 ms and books every note/clip that starts in the next 120 ms at its exact
- * AudioContext time. The audio clock does the timing, so the music never drifts with the timer.
- * Positions are kept in beats; a BPM change re-anchors (anchorBeat, anchorTime) so nothing jumps. */
+ * A timer wakes every 25 ms and books every note/clip starting in the next 120 ms at its exact AudioContext time,
+ * so the music never drifts with the timer. Positions are in beats. Both modes loop:
+ *   Pattern mode loops the current pattern; Song mode loops the playlist (0 .. song end).
+ * A BPM change or a loop wrap re-anchors (anchorBeat, anchorTime); the previous anchor is kept so the playhead
+ * stays right while already-booked audio from before the wrap is still playing. */
 (function () {
   'use strict';
   const BF = (window.BF = window.BF || {});
 
-  const LOOKAHEAD = 0.12; // seconds
+  const LOOKAHEAD = 0.12;
   const TICK_MS = 25;
-  const STEP_BEATS = 0.25; // one 16th step
 
-  /**
-   * Book everything that starts in [fromBeat, toBeat). Shared by live play and WAV export.
-   * beatTime(beat) -> AudioContext seconds. mode: 'pattern' | 'song'.
-   */
-  BF.scheduleRange = function (ctx, graph, p, fromBeat, toBeat, beatTime, mode, sources) {
-    const stepSec = 60 / p.bpm / 4;
-    // steps of the pattern
-    let first = Math.ceil(fromBeat / STEP_BEATS - 1e-9);
-    for (let s = first; s * STEP_BEATS < toBeat - 1e-9; s++) {
-      const beat = s * STEP_BEATS;
-      const bar = Math.floor(beat / 4);
-      if (mode === 'song' && !p.patternBars[bar]) continue;
-      const idx = ((s % 16) + 16) % 16;
-      const when = beatTime(beat);
-      p.tracks.forEach((t, i) => {
-        if (t.steps[idx]) BF.playSound(ctx, t.sound, graph.tracks[i].input, when, t.pitch, stepSec);
-      });
-    }
-    // clips start (song mode only)
-    if (mode === 'song') {
-      for (const c of p.clips) {
-        if (c.startBeat >= fromBeat - 1e-9 && c.startBeat < toBeat - 1e-9) {
-          const buf = BF.audio.clipBuffer(ctx, c);
-          if (buf) {
-            const src = BF.audio.playBuffer(ctx, buf, graph.lanes[c.lane].input, beatTime(c.startBeat));
-            if (src && sources) sources.push(src);
-          }
+  /** Book one pattern instance that starts at `atBeat`, events in [from, to) only, cut at `cutBeat`. */
+  function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat) {
+    const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
+    for (const ch of p.channels) {
+      if (ch.mute) continue;
+      const steps = pt.steps[ch.id];
+      if (steps) {
+        for (let i = 0; i < Math.min(steps.length, pt.length); i++) {
+          if (!steps[i]) continue;
+          const beat = atBeat + i / 4 + (i % 2 ? swing : 0);
+          if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
+          BF.audio.note(g, ch, beatTime(beat), 60, 0.8, secPerBeat / 4);
+        }
+      }
+      const notes = pt.notes[ch.id];
+      if (notes) {
+        for (const n of notes) {
+          if (n.start >= pt.length) continue;
+          const beat = atBeat + n.start / 4 + (Math.round(n.start) === n.start && n.start % 2 ? swing : 0);
+          if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
+          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, (n.len / 4) * secPerBeat);
         }
       }
     }
+  }
+
+  /** Book everything in [from, to). mode 'pattern': current pattern looped from beat 0. 'song': the playlist. */
+  BF.scheduleRange = function (g, p, from, to, beatTime, mode, sources) {
+    const spb = 60 / p.bpm;
+    if (mode === 'pattern') {
+      const pt = BF.pattern();
+      if (!pt) return;
+      const len = BF.patternBeats(pt);
+      for (let k = Math.floor(from / len); k * len < to; k++) bookPattern(g, p, pt, k * len, from, to, Infinity, beatTime, spb);
+      return;
+    }
+    for (const c of p.clips) {
+      if (p.tracks[c.track]?.mute) continue;
+      if (c.kind === 'pattern') {
+        const end = c.start + c.len;
+        if (end <= from || c.start >= to) continue;
+        const pt = p.patterns.find((x) => x.id === c.patternId);
+        if (pt) bookPattern(g, p, pt, c.start, from, to, end, beatTime, spb);
+      } else if (c.start >= from - 1e-9 && c.start < to - 1e-9) {
+        const ins = p.tracks[c.track]?.insert || 0;
+        const src = BF.audio.playClip(g.ctx, c, g.inserts[ins].transport, beatTime(c.start), 0, p.bpm);
+        if (src && sources) sources.push(src);
+      }
+    }
+  };
+
+  BF.songEndBeat = function (p = BF.project) {
+    let end = p.songBars * 4;
+    p.clips.forEach((c) => { end = Math.max(end, c.start + BF.audio.clipBeats(c, p.bpm)); });
+    return Math.ceil(end / 4 - 1e-9) * 4;
   };
 
   const T = (BF.transport = {
     playing: false,
     mode: 'pattern',
-    startBeat: 0, // where Song mode starts (set by clicking the ruler)
+    startBeat: 0,
     anchorBeat: 0,
     anchorTime: 0,
+    prev: null,
     bpm: 120,
     nextBeat: 0,
     sources: [],
@@ -55,37 +82,58 @@
   });
 
   const beatTime = (beat) => T.anchorTime + ((beat - T.anchorBeat) * 60) / T.bpm;
+  const loopEnd = () => (T.mode === 'song' ? BF.songEndBeat() : BF.patternBeats(BF.pattern()));
 
   T.position = function () {
     if (!T.playing) return T.mode === 'song' ? T.startBeat : 0;
-    const ctx = BF.audio.ctx;
-    return T.anchorBeat + ((ctx.currentTime - T.anchorTime) * T.bpm) / 60;
+    const now = BF.audio.ctx.currentTime;
+    const a = T.prev && now < T.anchorTime ? T.prev : T;
+    return Math.max(0, a.anchorBeat + ((now - a.anchorTime) * a.bpm) / 60);
   };
 
-  T.songEndBeat = () => BF.project.songBars * 4;
+  /** Start audio clips that are already running at `beat` (playing from the middle of a clip). */
+  function startRunningClips(beat, when) {
+    if (T.mode !== 'song') return;
+    const p = BF.project;
+    for (const c of p.clips) {
+      if (c.kind !== 'audio' || p.tracks[c.track]?.mute) continue;
+      const lenBeats = BF.audio.clipBeats(c, p.bpm);
+      if (c.start < beat && c.start + lenBeats > beat) {
+        const ins = p.tracks[c.track]?.insert || 0;
+        const src = BF.audio.playClip(BF.audio.ctx, c, BF.audio.graph.inserts[ins].transport, when, ((beat - c.start) * 60) / p.bpm, p.bpm);
+        if (src) T.sources.push(src);
+      }
+    }
+  }
 
   function tick() {
     const ctx = BF.audio.ctx;
     const p = BF.project;
-    if (p.bpm !== T.bpm) { // re-anchor at the current spot, then continue at the new tempo
+    if (p.bpm !== T.bpm) {
       const nowBeat = T.position();
+      T.prev = null;
       T.anchorBeat = nowBeat;
       T.anchorTime = ctx.currentTime;
       T.bpm = p.bpm;
-      if (T.nextBeat < nowBeat) T.nextBeat = Math.ceil(nowBeat / STEP_BEATS) * STEP_BEATS;
     }
     const horizon = ctx.currentTime + LOOKAHEAD;
-    const horizonBeat = T.anchorBeat + ((horizon - T.anchorTime) * T.bpm) / 60;
-    if (T.mode === 'song') {
-      const end = T.songEndBeat();
-      if (T.nextBeat < end) {
-        const to = Math.min(horizonBeat, end);
-        if (to > T.nextBeat) { BF.scheduleRange(ctx, BF.audio.graph, p, T.nextBeat, to, beatTime, 'song', T.sources); T.nextBeat = to; }
+    let guard = 0;
+    while (guard++ < 8) {
+      const end = loopEnd();
+      const horizonBeat = T.anchorBeat + ((horizon - T.anchorTime) * T.bpm) / 60;
+      const to = Math.min(horizonBeat, end);
+      if (to > T.nextBeat) {
+        BF.scheduleRange(BF.audio.graph, p, T.nextBeat, to, beatTime, T.mode, T.sources);
+        T.nextBeat = to;
       }
-      if (T.position() >= end) { T.stop(); return; }
-    } else if (horizonBeat > T.nextBeat) {
-      BF.scheduleRange(ctx, BF.audio.graph, p, T.nextBeat, horizonBeat, beatTime, 'pattern', null);
-      T.nextBeat = horizonBeat;
+      if (horizonBeat < end) break;
+      // loop: beat `end` happens at beatTime(end); continue from 0 there
+      const wrapTime = beatTime(end);
+      T.prev = { anchorBeat: T.anchorBeat, anchorTime: T.anchorTime, bpm: T.bpm };
+      T.anchorBeat = 0;
+      T.anchorTime = wrapTime;
+      T.nextBeat = 0;
+      if (T.sources.length > 200) T.sources = T.sources.slice(-100);
     }
   }
 
@@ -93,26 +141,16 @@
     const ctx = BF.audio.ensure();
     const g = BF.audio.graph;
     BF.audio.stopPreview();
-    g.transport.gain.cancelScheduledValues(ctx.currentTime);
-    g.transport.gain.setValueAtTime(1, ctx.currentTime);
+    g.inserts.forEach((ins) => { ins.transport.gain.cancelScheduledValues(ctx.currentTime); ins.transport.gain.setValueAtTime(1, ctx.currentTime); });
     T.bpm = BF.project.bpm;
+    T.prev = null;
     T.anchorTime = ctx.currentTime + 0.05;
-    T.anchorBeat = T.mode === 'song' ? T.startBeat : 0;
-    if (T.mode === 'song' && T.anchorBeat >= T.songEndBeat()) T.anchorBeat = T.startBeat = 0;
-    T.nextBeat = T.anchorBeat;
+    let start = T.mode === 'song' ? T.startBeat : 0;
+    if (start >= loopEnd()) start = T.startBeat = 0;
+    T.anchorBeat = start;
+    T.nextBeat = start;
     T.sources = [];
-    // Song mode starting in the middle of a clip: start that clip part-way through.
-    if (T.mode === 'song') {
-      for (const c of BF.project.clips) {
-        const len = BF.audio.clipSeconds(c);
-        const startSec = ((T.anchorBeat - c.startBeat) * 60) / T.bpm;
-        if (c.startBeat < T.anchorBeat && startSec < len) {
-          const buf = BF.audio.clipBuffer(ctx, c);
-          const src = buf && BF.audio.playBuffer(ctx, buf, g.lanes[c.lane].input, T.anchorTime, startSec);
-          if (src) T.sources.push(src);
-        }
-      }
-    }
+    startRunningClips(start, T.anchorTime);
     T.playing = true;
     tick();
     T.timer = setInterval(tick, TICK_MS);
@@ -122,22 +160,21 @@
   T.stop = function () {
     if (!T.playing) return;
     const ctx = BF.audio.ctx;
-    const g = BF.audio.graph;
     clearInterval(T.timer);
     T.timer = null;
     T.playing = false;
-    // fade the whole transport out over 15 ms, then cut the sources and restore the level
     const now = ctx.currentTime;
-    g.transport.gain.cancelScheduledValues(now);
-    g.transport.gain.setValueAtTime(g.transport.gain.value, now);
-    g.transport.gain.linearRampToValueAtTime(0, now + 0.015);
-    const old = T.sources;
+    BF.audio.graph.inserts.forEach((ins) => {
+      const gp = ins.transport.gain;
+      gp.cancelScheduledValues(now);
+      gp.setValueAtTime(gp.value, now);
+      gp.linearRampToValueAtTime(0, now + 0.015);
+      // notes already booked in the look-ahead window land in the silence; bring the level back after it
+      gp.setValueAtTime(0, now + LOOKAHEAD + 0.25);
+      gp.linearRampToValueAtTime(1, now + LOOKAHEAD + 0.26);
+    });
+    T.sources.forEach((s) => { try { s.stop(now + 0.02); } catch { /* ended */ } });
     T.sources = [];
-    // Synth voices are short; clip sources can be long, so stop them explicitly after the fade.
-    old.forEach((s) => { try { s.stop(now + 0.02); } catch { /* ended */ } });
-    // Voices already booked in the look-ahead window land inside the silence; bring the level back after it.
-    g.transport.gain.setValueAtTime(0, now + LOOKAHEAD + 0.25);
-    g.transport.gain.linearRampToValueAtTime(1, now + LOOKAHEAD + 0.26);
     BF.emit('transport');
   };
 
@@ -152,21 +189,16 @@
     if (was) setTimeout(T.play, 140);
   };
 
-  /** Book a whole song into an OfflineAudioContext and render it. */
-  BF.renderSong = async function () {
+  /** Render the whole song (Song mode, no loop) into an OfflineAudioContext. */
+  BF.renderSong = async function (mode = 'song') {
     const p = BF.project;
     const rate = 44100;
-    const songBeats = p.songBars * 4;
-    let lastSec = (songBeats * 60) / p.bpm;
-    // let clips that start inside the song ring out to their end
-    p.clips.forEach((c) => {
-      if (c.startBeat < songBeats) lastSec = Math.max(lastSec, (c.startBeat * 60) / p.bpm + BF.audio.clipSeconds(c));
-    });
-    const total = Math.ceil((lastSec + 1.0) * rate); // +1 s tail for decays
+    const end = mode === 'song' ? BF.songEndBeat(p) : BF.patternBeats(BF.pattern());
+    const total = Math.ceil((((end * 60) / p.bpm) + 2.5) * rate); // tail for reverb/delay/release
     const ctx = new OfflineAudioContext(2, total, rate);
-    const graph = BF.audio.buildGraph(ctx);
-    BF.audio.updateGraph(graph, p, ctx);
-    BF.scheduleRange(ctx, graph, p, 0, songBeats, (b) => (b * 60) / p.bpm, 'song', null);
+    const g = BF.audio.buildGraph(ctx);
+    BF.audio.sync(g, p);
+    BF.scheduleRange(g, p, 0, end, (b) => (b * 60) / p.bpm, mode, null);
     return ctx.startRendering();
   };
 })();

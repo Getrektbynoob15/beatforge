@@ -6,7 +6,7 @@
   'use strict';
   const BF = (window.BF = window.BF || {});
 
-  BF.timeStretch = function (ctx, buffer, speed) {
+  BF.timeStretch = function (buffer, speed) {
     if (Math.abs(speed - 1) < 0.005) return buffer;
     const rate = buffer.sampleRate;
     const N = Math.max(256, Math.round(rate * 0.046)); // grain ~46 ms
@@ -17,7 +17,7 @@
     const chans = buffer.numberOfChannels;
     const inp = [];
     for (let c = 0; c < chans; c++) inp.push(buffer.getChannelData(c));
-    const out = ctx.createBuffer(chans, outLen, rate);
+    const out = new AudioBuffer({ numberOfChannels: chans, length: outLen, sampleRate: rate });
     const outData = [];
     for (let c = 0; c < chans; c++) outData.push(out.getChannelData(c));
 

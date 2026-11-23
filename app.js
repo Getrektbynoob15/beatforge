@@ -1,4 +1,4 @@
-/* app.js: boot, top-bar wiring, keyboard shortcuts and the playhead animation. */
+/* app.js: boot, top bar, menus, windows, keyboard shortcuts, render batching and the animation loop. */
 (function () {
   'use strict';
   const BF = window.BF;
@@ -6,170 +6,238 @@
 
   // ---------- small UI helpers ----------
   let toastTimer = null;
-  BF.ui = {
-    toast(msg, error = false) {
-      const t = $('toast');
-      t.textContent = msg;
-      t.classList.toggle('error', !!error);
-      t.hidden = false;
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { t.hidden = true; }, error ? 7000 : 3500);
-    },
-    busy(msg) {
-      $('busy').hidden = !msg;
-      if (msg) $('busyText').textContent = msg;
-    },
+  BF.ui.toast = function (msg, error = false) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.toggle('error', !!error);
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, error ? 7000 : 3800);
+  };
+  BF.ui.busy = function (msg) {
+    $('busy').hidden = !msg;
+    if (msg) $('busyText').textContent = msg;
   };
 
-  // ---------- build ----------
-  BF.sequencer.build($('sequencer'));
-  BF.mixer.build($('mixer'));
-  BF.playlist.build($('playlist'));
+  BF.project = BF.newProject(true);
+
+  // ---------- windows ----------
+  const W = BF.win;
+  W.create({ id: 'playlist', title: 'Playlist', body: BF.playlist.build(), rect: { x: 0, y: 0, w: 1, h: 0.62 }, open: true, hotkey: 'F5', onShow: () => BF.playlist.render() });
+  W.create({ id: 'rack', title: 'Channel rack', body: BF.rack.build(), rect: { x: 0.03, y: 0.06, w: 0.6, h: 0.5 }, open: true, hotkey: 'F6', onShow: () => BF.rack.render() });
+  W.create({ id: 'piano', title: 'Piano roll', body: BF.piano.build(), rect: { x: 0.12, y: 0.1, w: 0.78, h: 0.62 }, open: false, hotkey: 'F7', onShow: () => { BF.piano.sync(); BF.piano.reveal(); } });
+  W.create({ id: 'mixer', title: 'Mixer', body: BF.mixer.build(), rect: { x: 0, y: 0.62, w: 1, h: 0.38 }, open: true, hotkey: 'F9', onShow: () => BF.mixer.render() });
+  W.create({ id: 'editor', title: 'Plugin', body: BF.editor.build(), rect: { x: 0.55, y: 0.08, w: 0.42, h: 0.5 }, open: false, onShow: () => BF.editor.render() });
+  W.front('rack');
+
+  // ---------- render batching ----------
+  // Changes are collected and drawn once per frame, so dragging stays smooth.
+  const dirty = new Set();
+  let queued = false;
+  function want(...parts) {
+    parts.forEach((p) => dirty.add(p));
+    if (!queued) { queued = true; requestAnimationFrame(flush); }
+  }
+  function flush() {
+    queued = false;
+    const d = new Set(dirty);
+    dirty.clear();
+    const knob = BF.ui.knobDrag;
+    if (d.has('top')) syncTop();
+    if (d.has('rack') && !knob && W.isOpen('rack')) BF.rack.render();
+    if (d.has('playlist') && !knob && W.isOpen('playlist')) BF.playlist.render();
+    if (d.has('piano') && W.isOpen('piano')) BF.piano.sync();
+    if (d.has('mixer') && !knob && W.isOpen('mixer')) BF.mixer.render();
+    if (d.has('mixlabels') && W.isOpen('mixer')) BF.mixer.syncLabels();
+    if (d.has('editor') && W.isOpen('editor')) BF.editor.render();
+    if (d.has('editorsync') && W.isOpen('editor')) BF.editor.sync();
+  }
+
+  BF.onChange((reason) => {
+    if (BF.audio.ctx && !['select', 'pattern', 'view', 'transport', 'windows'].includes(reason)) BF.audio.sync(BF.audio.graph, BF.project);
+    switch (reason) {
+      case 'mix': want('mixlabels', 'top'); break;
+      case 'param': want('top'); break;
+      case 'steps': want('rack', 'playlist', 'top'); break;
+      case 'notes': want('piano', 'rack', 'playlist', 'top'); break;
+      case 'clips': want('playlist', 'top'); break;
+      case 'select': want('rack', 'piano', 'top'); break;
+      case 'pattern': want('rack', 'piano', 'playlist', 'top'); break;
+      case 'transport': want('top', 'playlist'); break;
+      case 'windows': want('top'); break;
+      case 'knob-end': want('rack', 'mixer', 'playlist'); break;
+      case 'undo': case 'redo': want('top', 'rack', 'playlist', 'piano', 'mixer', 'editorsync'); break;
+      case 'load': want('top', 'rack', 'playlist', 'piano', 'mixer', 'editor'); break;
+      default: want('top', 'rack', 'playlist', 'piano', 'mixer');
+    }
+  });
 
   function syncTop() {
-    const p = BF.project;
+    const p = BF.project, T = BF.transport;
     if (document.activeElement !== $('bpm')) $('bpm').value = p.bpm;
-    if (document.activeElement !== $('songBars')) $('songBars').value = p.songBars;
     $('undoBtn').disabled = !BF.canUndo();
     $('redoBtn').disabled = !BF.canRedo();
-    const T = BF.transport;
-    $('playBtn').textContent = T.playing ? '■ Stop' : '▶ Play';
+    $('playBtn').textContent = T.playing ? '❚❚' : '▶';
+    $('playBtn').setAttribute('aria-label', T.playing ? 'Pause' : 'Play');
     $('playBtn').setAttribute('aria-pressed', String(T.playing));
     [['modePattern', 'pattern'], ['modeSong', 'song']].forEach(([id, m]) => {
       $(id).classList.toggle('on', T.mode === m);
       $(id).setAttribute('aria-checked', String(T.mode === m));
     });
-    document.title = `${p.name} · BeatForge`;
+    BF.patterns.syncSelect($('patSelect'));
+    document.querySelectorAll('[data-open]').forEach((b) => b.setAttribute('aria-pressed', String(W.isOpen(b.dataset.open))));
+    document.title = `${BF.dirty ? '• ' : ''}${p.name} · BeatForge`;
   }
 
-  BF.onChange((reason) => {
-    const force = reason === 'undo' || reason === 'redo' || reason === 'load';
-    if (BF.audio.ctx) BF.audio.updateGraph(BF.audio.graph, BF.project, BF.audio.ctx);
-    BF.sequencer.sync();
-    BF.mixer.sync(force);
-    if (reason !== 'mix') BF.playlist.render();
-    syncTop();
-  });
-  BF.emit('load');
-
-  // ---------- transport ----------
+  // ---------- top bar ----------
   $('playBtn').addEventListener('click', () => BF.transport.toggle());
+  $('stopBtn').addEventListener('click', () => { BF.transport.stop(); BF.transport.startBeat = 0; BF.emit('transport'); });
   $('modePattern').addEventListener('click', () => BF.transport.setMode('pattern'));
   $('modeSong').addEventListener('click', () => BF.transport.setMode('song'));
   $('bpm').addEventListener('change', () => {
-    const v = Math.round(BF.clamp($('bpm').value, 60, 200, BF.project.bpm));
+    const v = Math.round(BF.clamp($('bpm').value, 40, 300, BF.project.bpm) * 100) / 100;
     $('bpm').value = v;
     if (v !== BF.project.bpm) BF.commit((p) => { p.bpm = v; }, 'bpm');
   });
-  $('songBars').addEventListener('change', () => {
-    const v = Math.round(BF.clamp($('songBars').value, 1, 64, BF.project.songBars));
-    $('songBars').value = v;
-    if (v !== BF.project.songBars) BF.commit((p) => { p.songBars = v; p.patternBars = BF.resizeBars(p.patternBars, v); });
+  $('patSelect').addEventListener('change', (e) => {
+    if (e.target.value === '__new') BF.patterns.add();
+    else BF.setView((p) => { p.currentPattern = e.target.value; }, 'pattern');
+    BF.playlist.pick = { kind: 'pattern' };
   });
-
-  // ---------- project buttons ----------
+  document.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => W.toggle(b.dataset.open)));
   $('undoBtn').addEventListener('click', () => BF.undo());
   $('redoBtn').addEventListener('click', () => BF.redo());
-  $('newBtn').addEventListener('click', () => {
-    if (!confirm('Start a new empty project? Unsaved changes are lost.')) return;
+  $('openInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) BF.io.open(f); });
+
+  function newProject() {
+    if (BF.dirty && !confirm('Start a new project? Unsaved changes are lost.')) return;
     BF.transport.stop();
-    BF.audio.buffers.clear();
-    BF.audio.stretched.clear();
-    BF.playlist.selected = null;
+    BF.audio.buffers.clear(); BF.audio.stretched.clear(); BF.audio.reversedCache.clear();
+    BF.playlist.sel.clear(); BF.piano.sel.clear();
     BF.transport.startBeat = 0;
+    BF.editor.target = null;
     BF.replaceProject(BF.newProject(false));
-  });
-  $('saveBtn').addEventListener('click', () => BF.io.save());
-  $('openBtn').addEventListener('click', () => $('openInput').click());
-  $('openInput').addEventListener('change', (e) => {
-    const f = e.target.files[0];
-    e.target.value = '';
-    if (f) BF.io.open(f);
-  });
-  $('exportBtn').addEventListener('click', () => { BF.transport.stop(); BF.io.exportWav(); });
-  $('clearPattern').addEventListener('click', () => BF.commit((p) => p.tracks.forEach((t) => t.steps.fill(false))));
-  $('importBtn').addEventListener('click', () => $('importInput').click());
-  $('importInput').addEventListener('change', (e) => {
-    const files = [...e.target.files];
-    e.target.value = '';
-    if (!files.length) return;
-    const p = BF.project;
-    const end = p.clips.filter((c) => c.lane === 0).reduce((m, c) => Math.max(m, c.startBeat + (BF.audio.clipSeconds(c) * p.bpm) / 60), 0);
-    BF.io.importFiles(files, 0, Math.ceil(end / 0.25) * 0.25);
-  });
+  }
+  const openFile = () => $('openInput').click();
 
-  // clip panel
-  const clip = () => BF.project.clips.find((c) => c.id === BF.playlist.selected);
-  $('clipSpeed').addEventListener('input', () => {
-    const c = clip();
-    if (!c) return;
-    const v = BF.clamp($('clipSpeed').value, 50, 200, 100) / 100;
-    $('clipSpeedVal').textContent = `${Math.round(v * 100)}%`;
-    BF.commit((p) => { const k = p.clips.find((x) => x.id === c.id); if (k) k.speed = v; }, `speed-${c.id}`);
-  });
-  $('clipSpeedReset').addEventListener('click', () => {
-    const c = clip();
-    if (c) BF.commit((p) => { const k = p.clips.find((x) => x.id === c.id); if (k) k.speed = 1; });
-  });
-  $('clipPreview').addEventListener('click', () => {
-    const c = clip();
-    if (!c) return;
-    BF.ui.busy('Preparing preview…');
-    setTimeout(() => { try { BF.audio.preview(c); } finally { BF.ui.busy(null); } }, 10);
-  });
-  $('clipDelete').addEventListener('click', () => BF.playlist.deleteSelected());
+  $('menuFile').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
+    { label: 'New', hint: 'Ctrl+N', action: newProject },
+    { label: 'New from demo', action: () => { if (!BF.dirty || confirm('Unsaved changes are lost. Continue?')) { BF.transport.stop(); BF.replaceProject(BF.newProject(true)); } } },
+    { label: 'Open…', hint: 'Ctrl+O', action: openFile },
+    { label: 'Save', hint: 'Ctrl+S', action: () => BF.io.save() },
+    { label: 'Save as…', hint: 'Ctrl+Shift+S', action: () => BF.io.saveAs() },
+    '-',
+    { label: 'Import audio to playlist…', action: () => BF.io.pickFiles((f) => BF.io.importToPlaylist(f, 0, 0)) },
+    { label: 'Import audio as Sampler channels…', action: () => BF.io.pickFiles((f) => BF.io.importToRack(f)) },
+    '-',
+    { label: 'Export song as WAV…', hint: 'Ctrl+R', action: () => BF.io.exportWav('song') },
+    { label: 'Export current pattern as WAV…', action: () => BF.io.exportWav('pattern') },
+    { label: 'Export stems (one WAV per insert)…', action: () => BF.io.exportStems() },
+  ]));
+  $('menuEdit').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
+    { label: 'Undo', hint: 'Ctrl+Z', disabled: !BF.canUndo(), action: () => BF.undo() },
+    { label: 'Redo', hint: 'Ctrl+Shift+Z', disabled: !BF.canRedo(), action: () => BF.redo() },
+    '-',
+    { label: 'Rename project…', action: () => { const n = BF.ui.prompt('Project name', BF.project.name); if (n) BF.commit((p) => { p.name = n; }); } },
+    { label: 'Song length (bars)…', action: () => { const n = BF.ui.prompt('Minimum song length in bars', String(BF.project.songBars)); if (n) BF.commit((p) => { p.songBars = Math.round(BF.clamp(n, 1, 512, p.songBars)); }); } },
+  ]));
+  $('menuView').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
+    { label: 'Playlist', hint: 'F5', checked: W.isOpen('playlist'), action: () => W.toggle('playlist') },
+    { label: 'Channel rack', hint: 'F6', checked: W.isOpen('rack'), action: () => W.toggle('rack') },
+    { label: 'Piano roll', hint: 'F7', checked: W.isOpen('piano'), action: () => W.toggle('piano') },
+    { label: 'Mixer', hint: 'F9', checked: W.isOpen('mixer'), action: () => W.toggle('mixer') },
+    { label: 'Plugin editor', checked: W.isOpen('editor'), action: () => W.toggle('editor') },
+    '-',
+    { label: 'Reset window layout', action: () => W.resetLayout() },
+  ]));
+  $('menuHelp').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
+    { label: 'Keyboard shortcuts', hint: 'F1', action: showHelp },
+    { label: 'About BeatForge', action: () => BF.ui.toast('BeatForge 2: free, open source (MIT). Made by GRBN Studios.') },
+  ]));
 
-  // Dropping a file outside a lane should not navigate away from the app.
-  window.addEventListener('dragover', (e) => e.preventDefault());
-  window.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const f = e.dataTransfer?.files?.[0];
-    if (f && /\.json$/i.test(f.name)) BF.io.open(f);
-    else if (f) BF.ui.toast('Drop audio files on one of the playlist lanes.');
-  });
+  const SHORTCUTS = [
+    ['Space', 'Play / pause'], ['L', 'Switch Pattern / Song mode'], ['F5 · F6 · F7 · F9', 'Playlist · Channel rack · Piano roll · Mixer'],
+    ['Numpad + / −', 'Next / previous pattern'], ['Ctrl+N · Ctrl+O · Ctrl+S', 'New · Open · Save'], ['Ctrl+Shift+S', 'Save as'], ['Ctrl+R', 'Export WAV'],
+    ['Ctrl+Z · Ctrl+Alt+Z', 'Undo'], ['Ctrl+Shift+Z · Ctrl+Y', 'Redo'],
+    ['P · B · D · E · C', 'Draw · Paint · Delete · Select · Slice (playlist / piano roll)'], ['Right-click', 'Delete a note, clip or step'],
+    ['Ctrl+drag', 'Box select'], ['Shift+drag', 'Duplicate while dragging'], ['Shift+drag clip edge', 'Stretch audio clip'],
+    ['Ctrl+A · Ctrl+D', 'Select all · none (piano roll)'], ['Ctrl+C · Ctrl+X · Ctrl+V', 'Copy · cut · paste notes'], ['Ctrl+B', 'Duplicate selected clips'],
+    ['↑ ↓ / Ctrl+↑ ↓', 'Transpose a semitone / an octave'], ['← →', 'Move selection by the snap'], ['Ctrl+Q', 'Quantize notes'],
+    ['Ctrl+wheel', 'Zoom'], ['Double-click a knob', 'Reset it'], ['F1', 'This list'],
+  ];
+  function showHelp() {
+    const b = $('helpBody');
+    b.textContent = '';
+    const tbl = document.createElement('table');
+    SHORTCUTS.forEach(([k, d]) => { const tr = tbl.insertRow(); tr.insertCell().innerHTML = ''; tr.cells[0].append(Object.assign(document.createElement('kbd'), { textContent: k })); tr.insertCell().textContent = d; });
+    b.append(tbl);
+    $('helpDlg').showModal();
+  }
 
-  // ---------- keyboard shortcuts ----------
+  // ---------- keyboard shortcuts (FL-style) ----------
   window.addEventListener('keydown', (e) => {
     const el = document.activeElement;
-    const typing = el && (el.tagName === 'INPUT' && /^(number|text|search)$/.test(el.type) || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+    const typing = el && ((el.tagName === 'INPUT' && /^(number|text|search)$/.test(el.type)) || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
+    if ($('helpDlg').open) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
-    if (mod && k === 's') { e.preventDefault(); BF.io.save(); return; }
-    if (mod && k === 'o') { e.preventDefault(); $('openInput').click(); return; }
-    if (mod && k === 'e') { e.preventDefault(); $('exportBtn').click(); return; }
+    if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) BF.io.saveAs(); else BF.io.save(); return; }
+    if (mod && k === 'o') { e.preventDefault(); openFile(); return; }
+    if (mod && k === 'n') { e.preventDefault(); newProject(); return; }
+    if (mod && k === 'r') { e.preventDefault(); BF.io.exportWav('song'); return; }
+    if (['F5', 'F6', 'F7', 'F9'].includes(e.key)) { e.preventDefault(); W.toggle({ F5: 'playlist', F6: 'rack', F7: 'piano', F9: 'mixer' }[e.key]); return; }
+    if (e.key === 'F1') { e.preventDefault(); showHelp(); return; }
     if (typing) return;
+    if (BF.piano.typing && !mod && BF.piano.typingKey(e, true)) return;
     if (mod && k === 'z' && e.shiftKey) { e.preventDefault(); BF.redo(); return; }
     if (mod && k === 'y') { e.preventDefault(); BF.redo(); return; }
     if (mod && k === 'z') { e.preventDefault(); BF.undo(); return; }
-    // Space plays/stops, unless focus is on a button that Space would press
-    if (e.code === 'Space' && !(el && el.tagName === 'BUTTON' && el !== $('playBtn'))) {
-      e.preventDefault();
-      BF.transport.toggle();
-    }
+    if (e.code === 'Space') { e.preventDefault(); BF.transport.toggle(); return; }
+    if (!mod && k === 'l') { e.preventDefault(); BF.transport.setMode(BF.transport.mode === 'song' ? 'pattern' : 'song'); return; }
+    if (e.code === 'NumpadAdd' || (e.key === '+' && !mod)) { e.preventDefault(); BF.patterns.step(1); return; }
+    if (e.code === 'NumpadSubtract' || (e.key === '-' && !mod)) { e.preventDefault(); BF.patterns.step(-1); return; }
   });
-  // Space on the Play button itself: handled above; stop the native click from double-toggling.
-  $('playBtn').addEventListener('keydown', (e) => { if (e.code === 'Space') e.preventDefault(); });
-  $('playBtn').addEventListener('keyup', (e) => { if (e.code === 'Space') e.preventDefault(); });
+  // stop Space from also "clicking" a focused button
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space' && document.activeElement?.tagName === 'BUTTON') e.preventDefault(); }, true);
 
-  // ---------- playhead / position display ----------
+  // dropping files outside a window: projects open, audio goes to the playlist
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const files = [...(e.dataTransfer?.files || [])];
+    if (!files.length) return;
+    if (/\.json$/i.test(files[0].name)) BF.io.open(files[0]);
+    else BF.io.importToPlaylist(files, 0, 0);
+  });
+  window.addEventListener('beforeunload', (e) => { if (BF.dirty && !navigator.userAgent.includes('Electron')) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ---------- animation loop: playhead, step light, meters ----------
   function frame() {
     const T = BF.transport;
     const beat = T.position();
-    if (T.playing && BF.audio.ctx.currentTime >= T.anchorTime) {
-      const step = Math.floor(beat * 4) % 16;
-      BF.sequencer.light(step);
-      if (T.mode === 'song') { BF.playlist.drawPlayhead(beat); BF.playlist.follow(beat); }
-      else BF.playlist.drawPlayhead(beat % 4);
+    const ctx = BF.audio.ctx;
+    if (T.playing && ctx && ctx.currentTime >= T.anchorTime - 0.001) {
+      if (T.mode === 'pattern') {
+        BF.rack.light(Math.floor(beat * 4) % BF.pattern().length);
+        BF.playlist.drawPlayhead(beat);
+      } else {
+        const c = BF.project.clips.find((x) => x.kind === 'pattern' && x.patternId === BF.project.currentPattern && beat >= x.start && beat < x.start + x.len);
+        BF.rack.light(c ? Math.floor((beat - c.start) * 4) : -1);
+        BF.playlist.drawPlayhead(beat);
+        BF.playlist.follow(beat);
+      }
+      if (W.isOpen('piano')) BF.piano.draw();
     } else {
-      BF.sequencer.light(-1);
-      BF.playlist.drawPlayhead(T.playing ? T.anchorBeat : T.mode === 'song' ? T.startBeat : 0);
+      BF.rack.light(-1);
+      BF.playlist.drawPlayhead(T.mode === 'song' ? T.startBeat : 0);
     }
-    const b = Math.max(0, T.playing ? beat : T.position());
+    if (W.isOpen('mixer')) BF.mixer.meters();
+    const b = Math.max(0, beat);
     $('posText').textContent = `${Math.floor(b / 4) + 1}.${(Math.floor(b) % 4) + 1}.${(Math.floor(b * 4) % 4) + 1}`;
     requestAnimationFrame(frame);
   }
-  requestAnimationFrame(frame);
 
-  // Leave a hint for first-time users.
-  BF.ui.toast('Press Space or ▶ Play to hear the demo beat. Click the squares to change it.');
+  BF.emit('load');
+  requestAnimationFrame(frame);
+  BF.ui.toast('Press Space to play the demo. F6 channel rack, F7 piano roll, F9 mixer, F1 shortcuts.');
 })();

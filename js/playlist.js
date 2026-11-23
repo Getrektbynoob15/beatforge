@@ -1,277 +1,611 @@
-/* playlist.js: timeline with a ruler, a "pattern" row and 8 audio lanes.
- * Clips are positioned in beats; dragging snaps to 16th steps. */
+/* playlist.js: the arrangement. Left: picker (patterns + audio). Right: 16 tracks of clips.
+ * Tools: Draw (P), Paint (B), Delete (D), Slice (C), Select (E).
+ * Click empty space to place the picked pattern/audio, drag clips to move, drag the right edge to resize
+ * (audio: trims; Shift+edge drag stretches the audio to the new length), Shift+drag duplicates, right-click deletes,
+ * Ctrl+drag box-selects, Ctrl+B duplicates the selection, Delete removes it. Drop audio files on a track. */
 (function () {
   'use strict';
-  const BF = (window.BF = window.BF || {});
-  const P = (BF.playlist = { selected: null });
-  const PX = 28; // pixels per beat
-  const SNAP = 0.25; // beats
-  const LABEL_W = 120;
-  let root, inner, playhead, rulerTrack;
-  const peaksCache = new Map();
+  const BF = window.BF;
+  const P = (BF.playlist = { tool: 'draw', snap: 1, sel: new Set(), pick: { kind: 'pattern' } });
+  const HEADW = 150, TRACKH = 40, RULERH = 22;
+  let px = 22; // px per beat
+  let root, picker, scroller, inner, tracksEl, ruler, playhead, panel, toolbar, snapSel;
+  let peaks = new Map();
+  let drag = null;
 
-  P.PX = PX;
+  P.build = function () {
+    root = document.createElement('div');
+    root.className = 'pl';
+    toolbar = document.createElement('div');
+    toolbar.className = 'pr-tools';
+    [['draw', '✎ Draw', 'P'], ['paint', '🖌 Paint', 'B'], ['delete', '⌫ Delete', 'D'], ['slice', '✂ Slice', 'C'], ['select', '⬚ Select', 'E']].forEach(([id, l, k]) => {
+      const b = document.createElement('button');
+      b.className = 'btn small tool'; b.dataset.tool = id; b.textContent = l; b.title = `${l.slice(2)} tool (${k})`;
+      b.addEventListener('click', () => P.setTool(id));
+      toolbar.append(b);
+    });
+    snapSel = document.createElement('select');
+    snapSel.setAttribute('aria-label', 'Snap');
+    [[4, 'Snap: bar'], [1, 'Snap: beat'], [0.5, 'Snap: 1/8'], [0.25, 'Snap: step'], [0, 'Snap: none']].forEach(([v, l]) => snapSel.add(new Option(l, v)));
+    snapSel.value = '1';
+    snapSel.addEventListener('change', () => { P.snap = +snapSel.value; });
+    const zout = document.createElement('button'); zout.className = 'btn small'; zout.textContent = '−'; zout.setAttribute('aria-label', 'Zoom out');
+    const zin = document.createElement('button'); zin.className = 'btn small'; zin.textContent = '+'; zin.setAttribute('aria-label', 'Zoom in');
+    zout.addEventListener('click', () => setZoom(px / 1.25));
+    zin.addEventListener('click', () => setZoom(px * 1.25));
+    const imp = document.createElement('button'); imp.className = 'btn small'; imp.textContent = 'Import audio…';
+    imp.addEventListener('click', () => BF.io.pickFiles((files) => BF.io.importToPlaylist(files, firstFreeTrack(), 0)));
+    toolbar.append(snapSel, zout, zin, imp);
 
-  P.build = function (el) {
-    root = el;
-    P.render();
-  };
-
-  function widthBeats() {
-    const p = BF.project;
-    let end = p.songBars * 4;
-    p.clips.forEach((c) => { end = Math.max(end, c.startBeat + secToBeats(BF.audio.clipSeconds(c))); });
-    return Math.ceil(end / 4) * 4 + 8;
-  }
-  const secToBeats = (sec) => (sec * BF.project.bpm) / 60;
-
-  function gridStyle(div) {
-    div.style.backgroundSize = `${PX * 4}px 100%, ${PX}px 100%`;
-  }
-
-  P.render = function () {
-    const p = BF.project;
-    const beats = widthBeats();
-    const w = beats * PX;
-    const scroll = root.scrollLeft;
-    root.textContent = '';
+    const main = document.createElement('div');
+    main.className = 'pl-main';
+    picker = document.createElement('div');
+    picker.className = 'pl-picker';
+    picker.setAttribute('aria-label', 'Picker: choose what to place');
+    scroller = document.createElement('div');
+    scroller.className = 'pl-scroll';
+    scroller.tabIndex = 0;
+    scroller.setAttribute('aria-label', 'Playlist tracks');
     inner = document.createElement('div');
-    inner.className = 'pl-inner';
-    inner.style.width = `${LABEL_W + w}px`;
-
-    // ruler: bar numbers; click to set where Song mode starts
-    const ruler = row('Bars', 'ruler');
-    rulerTrack = ruler.track;
-    rulerTrack.style.width = `${w}px`;
-    for (let b = 0; b < beats / 4; b++) {
-      const n = document.createElement('div');
-      n.className = 'bar-num';
-      n.style.left = `${b * 4 * PX}px`;
-      n.textContent = String(b + 1);
-      if (b >= p.songBars) n.style.opacity = '.35';
-      rulerTrack.append(n);
-    }
-    rulerTrack.title = 'Click to set the Song start position';
-    rulerTrack.addEventListener('click', (e) => {
-      const beat = Math.max(0, Math.floor(((e.clientX - rulerTrack.getBoundingClientRect().left) / PX) / SNAP) * SNAP);
-      BF.transport.startBeat = Math.min(beat, p.songBars * 4 - SNAP);
-      BF.emit('transport');
-    });
-    inner.append(ruler.row);
-
-    // pattern row: which bars play the step pattern in Song mode
-    const pat = row('Pattern', 'pattern-row');
-    pat.track.style.width = `${w}px`;
-    for (let b = 0; b < p.songBars; b++) {
-      const btn = document.createElement('button');
-      btn.className = 'pat-bar';
-      btn.style.left = `${b * 4 * PX + 2}px`;
-      btn.style.width = `${4 * PX - 4}px`;
-      btn.setAttribute('aria-pressed', p.patternBars[b] ? 'true' : 'false');
-      btn.setAttribute('aria-label', `Play the pattern in bar ${b + 1}`);
-      btn.title = `Bar ${b + 1}: pattern ${p.patternBars[b] ? 'on' : 'off'} (Song mode)`;
-      btn.addEventListener('click', () => BF.commit((q) => { q.patternBars[b] = !q.patternBars[b]; }));
-      pat.track.append(btn);
-    }
-    inner.append(pat.row);
-
-    // lanes
-    p.lanes.forEach((lane, li) => {
-      const r = row(lane.name, 'lane');
-      r.track.style.width = `${w}px`;
-      r.track.dataset.lane = li;
-      const grid = document.createElement('div');
-      grid.className = 'pl-grid';
-      gridStyle(grid);
-      r.track.append(grid);
-      wireDrop(r.track, li);
-      p.clips.filter((c) => c.lane === li).forEach((c) => r.track.append(clipEl(c)));
-      inner.append(r.row);
-    });
-
+    inner.className = 'pl-inner2';
+    ruler = document.createElement('div');
+    ruler.className = 'pl-ruler';
+    tracksEl = document.createElement('div');
+    tracksEl.className = 'pl-tracks';
     playhead = document.createElement('div');
     playhead.className = 'playhead';
-    inner.append(playhead);
-    root.append(inner);
-    root.scrollLeft = scroll;
-    P.syncPanel();
+    inner.append(ruler, tracksEl, playhead);
+    scroller.append(inner);
+    main.append(picker, scroller);
+    panel = document.createElement('div');
+    panel.className = 'clip-panel';
+    panel.hidden = true;
+    root.append(toolbar, main, panel);
+
+    scroller.addEventListener('wheel', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const r = scroller.getBoundingClientRect();
+        const beat = (e.clientX - r.left - HEADW + scroller.scrollLeft) / px;
+        setZoom(px * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+        scroller.scrollLeft = beat * px - (e.clientX - r.left - HEADW);
+      }
+    }, { passive: false });
+    scroller.addEventListener('keydown', keys);
+    ruler.addEventListener('pointerdown', (e) => {
+      const beat = Math.max(0, snap(xToBeat(e.clientX), 'floor'));
+      BF.transport.startBeat = beat;
+      if (BF.transport.playing && BF.transport.mode === 'song') { BF.transport.stop(); setTimeout(BF.transport.play, 30); }
+      BF.emit('transport');
+    });
+    P.setTool('draw');
+    return root;
+  };
+
+  P.setTool = function (t) {
+    P.tool = t;
+    toolbar.querySelectorAll('.tool').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
+  };
+
+  function setZoom(z) { px = Math.min(120, Math.max(4, z)); P.render(); }
+  const snap = (b, mode = 'round') => (P.snap ? Math[mode](b / P.snap + 1e-6) * P.snap : Math.round(b * 100) / 100);
+  const xToBeat = (clientX) => (clientX - tracksEl.getBoundingClientRect().left - HEADW) / px;
+  const trackAt = (clientY) => {
+    const r = tracksEl.getBoundingClientRect();
+    return Math.min(BF.TRACKS - 1, Math.max(0, Math.floor((clientY - r.top) / TRACKH)));
+  };
+  function firstFreeTrack() {
+    const used = new Set(BF.project.clips.map((c) => c.track));
+    for (let i = 0; i < BF.TRACKS; i++) if (!used.has(i)) return i;
+    return 0;
+  }
+  const clipLen = (c) => BF.audio.clipBeats(c);
+
+  // ---------- picker ----------
+  function renderPicker() {
+    const p = BF.project;
+    picker.textContent = '';
+    const h1 = document.createElement('div'); h1.className = 'pk-h'; h1.textContent = 'Patterns';
+    picker.append(h1);
+    p.patterns.forEach((pt) => {
+      const b = document.createElement('button');
+      b.className = 'pk-item';
+      b.style.setProperty('--c', pt.color);
+      b.textContent = pt.name;
+      const picked = P.pick.kind === 'pattern' && p.currentPattern === pt.id;
+      b.setAttribute('aria-pressed', String(picked));
+      b.title = 'Click: pick this pattern to draw. Double-click: rename. Right-click: options.';
+      b.addEventListener('click', () => { P.pick = { kind: 'pattern' }; BF.setView((q) => { q.currentPattern = pt.id; }, 'pattern'); });
+      b.addEventListener('dblclick', () => BF.patterns.rename(pt.id));
+      b.addEventListener('contextmenu', (e) => { e.preventDefault(); BF.ui.menu(e.clientX, e.clientY, BF.patterns.menu(pt.id)); });
+      picker.append(b);
+    });
+    const add = document.createElement('button');
+    add.className = 'pk-item add';
+    add.textContent = '+ New pattern';
+    add.addEventListener('click', () => BF.patterns.add());
+    picker.append(add);
+    const ids = Object.keys(p.samples).filter((id) => BF.audio.buffers.has(id));
+    if (ids.length) {
+      const h2 = document.createElement('div'); h2.className = 'pk-h'; h2.textContent = 'Audio';
+      picker.append(h2);
+      ids.forEach((id) => {
+        const b = document.createElement('button');
+        b.className = 'pk-item audio';
+        b.textContent = p.samples[id].name;
+        b.setAttribute('aria-pressed', String(P.pick.kind === 'audio' && P.pick.sampleId === id));
+        b.title = 'Click: pick this audio to draw in the playlist. It plays when clicked.';
+        b.addEventListener('click', () => {
+          P.pick = { kind: 'audio', sampleId: id };
+          BF.audio.previewClip({ kind: 'audio', sampleId: id, mode: 'resample', speed: 1, pitch: 0, len: 0, track: 0 });
+          renderPicker();
+        });
+        picker.append(b);
+      });
+    }
+  }
+
+  // ---------- main render ----------
+  P.render = function () {
+    if (!root) return;
+    const p = BF.project;
+    renderPicker();
+    const end = Math.max(BF.songEndBeat(), 64) + 32;
+    const W = end * px;
+    inner.style.width = `${HEADW + W}px`;
+    const scrollL = scroller.scrollLeft, scrollT = scroller.scrollTop;
+    const hadFocus = root.contains(document.activeElement) && !panel.contains(document.activeElement);
+
+    // ruler
+    ruler.textContent = '';
+    ruler.style.width = `${HEADW + W}px`;
+    const corner = document.createElement('div');
+    corner.className = 'pl-corner';
+    corner.textContent = 'Click bar to set start';
+    ruler.append(corner);
+    const every = px * 4 < 26 ? 4 : px * 4 < 50 ? 2 : 1;
+    for (let b = 0; b < end / 4; b += every) {
+      const n = document.createElement('div');
+      n.className = 'bar-num';
+      n.style.left = `${HEADW + b * 4 * px}px`;
+      n.textContent = String(b + 1);
+      ruler.append(n);
+    }
+    const sEnd = document.createElement('div');
+    sEnd.className = 'song-end';
+    sEnd.style.left = `${HEADW + BF.songEndBeat() * px}px`;
+    sEnd.title = 'Song end (loops here)';
+    ruler.append(sEnd);
+    const start = document.createElement('div');
+    start.className = 'start-mark';
+    start.style.left = `${HEADW + BF.transport.startBeat * px}px`;
+    ruler.append(start);
+
+    // tracks
+    tracksEl.textContent = '';
+    p.tracks.forEach((t, ti) => {
+      const row = document.createElement('div');
+      row.className = 'pl-trk';
+      row.style.height = `${TRACKH}px`;
+      const head = document.createElement('div');
+      head.className = 'pl-trk-head';
+      const m = document.createElement('button');
+      m.className = 'led';
+      m.setAttribute('aria-pressed', String(!t.mute));
+      m.setAttribute('aria-label', `${t.name} on/off`);
+      m.addEventListener('click', () => BF.commit((q) => { q.tracks[ti].mute = !q.tracks[ti].mute; }));
+      const nm = document.createElement('span');
+      nm.className = 'trk-name';
+      nm.textContent = t.name;
+      nm.title = 'Double-click to rename';
+      nm.addEventListener('dblclick', () => { const n = BF.ui.prompt('Track name', t.name); if (n) BF.commit((q) => { q.tracks[ti].name = n; }); });
+      const ins = document.createElement('input');
+      ins.type = 'number'; ins.min = 0; ins.max = BF.INSERTS; ins.value = t.insert || 0; ins.className = 'rack-ins';
+      ins.title = 'Mixer insert for audio clips on this track (0 = Master)';
+      ins.setAttribute('aria-label', `${t.name} mixer insert for audio`);
+      ins.addEventListener('change', () => BF.commit((q) => { q.tracks[ti].insert = Math.round(BF.clamp(ins.value, 0, BF.INSERTS, 0)); }));
+      head.append(m, nm, ins);
+      const lane = document.createElement('div');
+      lane.className = 'pl-lane' + (t.mute ? ' muted' : '');
+      lane.style.width = `${W}px`;
+      lane.style.backgroundSize = `${px * 16}px 100%, ${px * 4}px 100%, ${px}px 100%`;
+      lane.dataset.track = ti;
+      lane.addEventListener('pointerdown', laneDown);
+      lane.addEventListener('contextmenu', (e) => e.preventDefault());
+      lane.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); lane.classList.add('drop'); } });
+      lane.addEventListener('dragleave', () => lane.classList.remove('drop'));
+      lane.addEventListener('drop', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        lane.classList.remove('drop');
+        const files = [...(e.dataTransfer?.files || [])];
+        if (files.length) BF.io.importToPlaylist(files, ti, Math.max(0, snap(xToBeat(e.clientX), 'floor')));
+      });
+      p.clips.filter((c) => c.track === ti).forEach((c) => lane.append(clipEl(c)));
+      row.append(head, lane);
+      tracksEl.append(row);
+    });
+    if (drag && drag.type === 'box') { /* box drawn by drag handler */ }
+    scroller.scrollLeft = scrollL;
+    scroller.scrollTop = scrollT;
+    if (hadFocus && !root.contains(document.activeElement)) scroller.focus({ preventScroll: true });
+    if (!BF.ui.knobDrag) renderPanel();
     P.drawPlayhead(BF.transport.position());
   };
 
-  function row(label, cls) {
-    const r = document.createElement('div');
-    r.className = `pl-row ${cls}`;
-    const l = document.createElement('div');
-    l.className = 'pl-label';
-    l.textContent = label;
-    const track = document.createElement('div');
-    track.className = 'pl-track';
-    r.append(l, track);
-    return { row: r, track };
-  }
-
   function clipEl(c) {
-    const s = BF.project.samples[c.sampleId];
+    const p = BF.project;
     const el = document.createElement('button');
-    el.className = 'clip' + (P.selected === c.id ? ' sel' : '');
+    el.className = 'pclip ' + c.kind + (P.sel.has(c.id) ? ' sel' : '');
     el.dataset.id = c.id;
-    const lenBeats = Math.max(SNAP, secToBeats(BF.audio.clipSeconds(c)));
-    el.style.left = `${c.startBeat * PX}px`;
-    el.style.width = `${lenBeats * PX}px`;
-    const pct = Math.round(c.speed * 100);
-    el.setAttribute('aria-label', `Clip ${s ? s.name : ''}, lane ${c.lane + 1}, beat ${c.startBeat + 1}, speed ${pct}%. Enter to preview, arrows to move, Delete to remove.`);
-    const cv = document.createElement('canvas');
+    const len = clipLen(c);
+    el.style.left = `${c.start * px}px`;
+    el.style.width = `${Math.max(4, len * px)}px`;
+    let name;
+    if (c.kind === 'pattern') {
+      const pt = p.patterns.find((x) => x.id === c.patternId);
+      name = pt ? pt.name : '?';
+      el.style.setProperty('--c', pt ? pt.color : '#888');
+    } else {
+      const s = p.samples[c.sampleId];
+      name = s ? s.name : 'missing';
+      const sp = BF.audio.clipSpeed(c);
+      if (c.mode === 'fit') name += ' · fit';
+      else if (Math.abs(sp - 1) > 0.004) name += ` · ${Math.round(sp * 100)}%`;
+      if (c.pitch) name += ` · ${c.pitch > 0 ? '+' : ''}${c.pitch} st`;
+      if (c.mode === 'resample') name += ' · resample';
+    }
     const label = document.createElement('span');
-    label.textContent = `${s ? s.name : 'missing'}${pct !== 100 ? ` · ${pct}%` : ''}`;
-    el.append(cv, label);
-    requestAnimationFrame(() => drawWave(cv, c));
-    el.addEventListener('pointerdown', (e) => startDrag(e, el, c));
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); select(c.id); BF.audio.preview(c); }
-      else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); P.deleteSelected(c.id); }
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        const d = e.key === 'ArrowLeft' ? -SNAP : SNAP;
-        select(c.id);
-        BF.commit((p) => { const k = p.clips.find((x) => x.id === c.id); if (k) k.startBeat = Math.max(0, k.startBeat + d); }, `move-${c.id}`);
-        focusClip(c.id);
-      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        const d = e.key === 'ArrowUp' ? -1 : 1;
-        select(c.id);
-        BF.commit((p) => { const k = p.clips.find((x) => x.id === c.id); if (k) k.lane = Math.min(7, Math.max(0, k.lane + d)); }, `lane-${c.id}`);
-        focusClip(c.id);
-      }
-    });
-    el.addEventListener('focus', () => { if (P.selected !== c.id) select(c.id, false); });
+    label.textContent = name;
+    el.append(label);
+    if (c.kind === 'pattern') {
+      const cv = document.createElement('canvas');
+      el.prepend(cv);
+      requestAnimationFrame(() => drawPatternMini(cv, c));
+    } else {
+      const cv = document.createElement('canvas');
+      el.prepend(cv);
+      requestAnimationFrame(() => drawWave(cv, c));
+    }
+    const edge = document.createElement('i');
+    edge.className = 'pclip-edge';
+    edge.title = 'Drag to resize. Shift+drag: stretch audio.';
+    el.append(edge);
+    el.setAttribute('aria-label', `${c.kind === 'pattern' ? 'Pattern' : 'Audio'} clip ${name}, track ${c.track + 1}, bar ${Math.floor(c.start / 4) + 1}. Arrows move, Delete removes, Enter opens.`);
+    el.addEventListener('pointerdown', (e) => clipDown(e, c, e.target === edge));
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('dblclick', () => openClip(c));
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); openClip(c); } });
+    el.addEventListener('focus', () => { if (!P.sel.has(c.id)) { P.sel = new Set([c.id]); markSel(); renderPanel(); } });
     return el;
   }
 
-  function focusClip(id) {
-    const el = root.querySelector(`.clip[data-id="${CSS.escape(id)}"]`);
-    if (el) el.focus();
+  function openClip(c) {
+    if (c.kind === 'pattern') {
+      BF.setView((q) => { q.currentPattern = c.patternId; }, 'pattern');
+      BF.win.toggle('rack', true);
+    } else BF.audio.previewClip(c);
   }
 
-  function select(id, rerender = true) {
-    P.selected = id;
-    root.querySelectorAll('.clip').forEach((x) => x.classList.toggle('sel', x.dataset.id === id));
-    P.syncPanel();
-    if (rerender) { /* classes already updated */ }
-  }
-  P.select = select;
+  function markSel() { tracksEl.querySelectorAll('.pclip').forEach((x) => x.classList.toggle('sel', P.sel.has(x.dataset.id))); }
 
-  P.deleteSelected = function (id = P.selected) {
-    if (!id) return;
-    BF.audio.stopPreview();
-    BF.commit((p) => { p.clips = p.clips.filter((c) => c.id !== id); });
-    P.selected = null;
-    P.syncPanel();
-  };
-
-  function startDrag(e, el, c) {
+  // ---------- pointer handling ----------
+  function laneDown(e) {
+    if (e.target !== e.currentTarget) return;
+    scroller.focus({ preventScroll: true });
+    const ti = +e.currentTarget.dataset.track;
+    const beat = Math.max(0, snap(xToBeat(e.clientX), 'floor'));
+    if (e.button === 2 || P.tool === 'delete') { startErase(e); return; }
     if (e.button !== 0) return;
-    e.preventDefault();
-    el.focus({ preventScroll: true });
-    const startX = e.clientX, startY = e.clientY;
-    const origLeft = c.startBeat * PX;
-    let moved = false;
-    let lane = c.lane;
-    let beat = c.startBeat;
-    el.setPointerCapture(e.pointerId);
-    const move = (ev) => {
-      const dx = ev.clientX - startX, dy = ev.clientY - startY;
-      if (!moved && Math.hypot(dx, dy) < 4) return;
-      moved = true;
-      el.classList.add('dragging');
-      beat = Math.max(0, Math.round((origLeft + dx) / PX / SNAP) * SNAP);
-      el.style.left = `${beat * PX}px`;
-      // which lane is under the pointer?
-      const tracks = [...root.querySelectorAll('.pl-track[data-lane]')];
-      const hit = tracks.find((t) => { const r = t.getBoundingClientRect(); return ev.clientY >= r.top && ev.clientY < r.bottom; });
-      if (hit && +hit.dataset.lane !== lane) { lane = +hit.dataset.lane; hit.append(el); }
-    };
-    const up = () => {
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerup', up);
-      el.removeEventListener('pointercancel', up);
-      if (!moved) { select(c.id); BF.audio.preview(c); return; }
-      select(c.id);
-      BF.commit((p) => { const k = p.clips.find((x) => x.id === c.id); if (k) { k.startBeat = beat; k.lane = lane; } });
-    };
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
-  }
-
-  function wireDrop(track, lane) {
-    track.addEventListener('dragover', (e) => {
-      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      track.classList.add('drop');
-    });
-    track.addEventListener('dragleave', () => track.classList.remove('drop'));
-    track.addEventListener('drop', (e) => {
-      e.preventDefault();
-      track.classList.remove('drop');
-      const files = [...(e.dataTransfer?.files || [])];
-      if (!files.length) return;
-      const x = e.clientX - track.getBoundingClientRect().left;
-      const beat = Math.max(0, Math.round(x / PX / SNAP) * SNAP);
-      BF.io.importFiles(files, lane, beat);
-    });
-  }
-
-  function peaks(sampleId, n) {
-    const key = `${sampleId}:${n}`;
-    if (peaksCache.has(key)) return peaksCache.get(key);
-    const buf = BF.audio.buffers.get(sampleId);
-    if (!buf) return null;
-    const d = buf.getChannelData(0);
-    const out = new Float32Array(n);
-    const per = Math.max(1, Math.floor(d.length / n));
-    for (let i = 0; i < n; i++) {
-      let m = 0;
-      const s = i * per;
-      for (let j = 0; j < per; j += 8) { const v = Math.abs(d[s + j] || 0); if (v > m) m = v; }
-      out[i] = m;
+    if (e.ctrlKey || e.metaKey || P.tool === 'select') { startBox(e); return; }
+    if (P.tool === 'slice') return;
+    const c = place(ti, beat);
+    if (!c) return;
+    if (P.tool === 'paint') {
+      const key = `paint-${e.timeStamp}`;
+      let last = beat;
+      track(e, (ev) => {
+        const b = Math.max(0, snap(xToBeat(ev.clientX), 'floor'));
+        const len = c.kind === 'pattern' ? c.len : clipLen(c);
+        if (b >= last + len - 1e-6) { last = b; place(ti, b, key); }
+      });
+    } else {
+      P.sel = new Set([c.id]);
+      startMove(e, c, beat);
     }
-    peaksCache.set(key, out);
-    return out;
   }
 
+  function place(ti, beat, key = null) {
+    const p = BF.project;
+    let c;
+    if (P.pick.kind === 'audio' && p.samples[P.pick.sampleId]) {
+      c = { id: BF.uid('c'), kind: 'audio', track: ti, start: beat, len: 0, sampleId: P.pick.sampleId, mode: 'stretch', speed: 1, pitch: 0, srcBpm: p.bpm, gain: 1 };
+    } else {
+      const pt = BF.pattern();
+      if (!pt) return null;
+      c = { id: BF.uid('c'), kind: 'pattern', track: ti, start: beat, len: BF.patternBeats(pt), patternId: pt.id };
+    }
+    BF.commit((q) => q.clips.push(c), key);
+    return c;
+  }
+
+  function track(e, onMove, onUp) {
+    const t = scroller; // stable element: clips are re-rendered while dragging
+    t.setPointerCapture(e.pointerId);
+    const move = (ev) => onMove(ev);
+    const up = (ev) => { t.removeEventListener('pointermove', move); t.removeEventListener('pointerup', up); t.removeEventListener('pointercancel', up); if (onUp) onUp(ev); drag = null; };
+    t.addEventListener('pointermove', move);
+    t.addEventListener('pointerup', up);
+    t.addEventListener('pointercancel', up);
+  }
+
+  function clipDown(e, c, onEdge) {
+    e.stopPropagation();
+    if (e.button === 2 || P.tool === 'delete') { startErase(e); eraseClip(c.id, `erase-${e.timeStamp}`); return; }
+    if (e.button !== 0) return;
+    if (e.ctrlKey || e.metaKey) { // toggle selection
+      if (P.sel.has(c.id)) P.sel.delete(c.id); else P.sel.add(c.id);
+      markSel(); renderPanel();
+      return;
+    }
+    if (P.tool === 'slice') {
+      const at = snap(xToBeat(e.clientX));
+      sliceClip(c, at);
+      return;
+    }
+    if (!P.sel.has(c.id)) { P.sel = new Set([c.id]); markSel(); renderPanel(); }
+    if (c.kind === 'pattern' && BF.project.currentPattern !== c.patternId) { P.pick = { kind: 'pattern' }; BF.setView((q) => { q.currentPattern = c.patternId; }, 'pattern'); }
+    if (c.kind === 'audio') P.pick = { kind: 'audio', sampleId: c.sampleId };
+    const beat = xToBeat(e.clientX);
+    if (onEdge) startResize(e, c, e.shiftKey);
+    else {
+      if (e.shiftKey) { // duplicate selection, move the copies
+        const copies = BF.project.clips.filter((x) => P.sel.has(x.id)).map((x) => ({ ...x, id: BF.uid('c') }));
+        BF.commit((q) => q.clips.push(...copies));
+        P.sel = new Set(copies.map((x) => x.id));
+        const twin = copies.find((x) => x.start === c.start && x.track === c.track) || copies[0];
+        startMove(e, twin, beat, true);
+      } else startMove(e, c, beat);
+    }
+  }
+
+  function startMove(e, c, beat0) {
+    const key = `move-${e.timeStamp}`;
+    const orig = BF.project.clips.filter((x) => P.sel.has(x.id)).map((x) => ({ id: x.id, start: x.start, track: x.track }));
+    const t0 = c.track;
+    let moved = false;
+    drag = { type: 'move' };
+    const x0 = e.clientX, y0 = e.clientY;
+    track(e, (ev) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      moved = true;
+      let db = xToBeat(ev.clientX) - beat0;
+      db = P.snap ? Math.round(db / P.snap) * P.snap : db;
+      const minStart = Math.min(...orig.map((o) => o.start));
+      db = Math.max(-minStart, db);
+      const dt = trackAt(ev.clientY) - t0;
+      const minT = Math.min(...orig.map((o) => o.track)), maxT = Math.max(...orig.map((o) => o.track));
+      const dtt = Math.max(-minT, Math.min(BF.TRACKS - 1 - maxT, dt));
+      BF.commit((q) => orig.forEach((o) => { const k = q.clips.find((x) => x.id === o.id); if (k) { k.start = o.start + db; k.track = o.track + dtt; } }), key, 'clips');
+    });
+  }
+
+  function startResize(e, c, stretch) {
+    const key = `size-${e.timeStamp}`;
+    const p = BF.project;
+    const buf = c.kind === 'audio' ? BF.audio.buffers.get(c.sampleId) : null;
+    drag = { type: 'size' };
+    track(e, (ev) => {
+      let endB = xToBeat(ev.clientX);
+      endB = P.snap ? Math.round(endB / P.snap) * P.snap : endB;
+      const len = Math.max(P.snap || 0.25, endB - c.start);
+      BF.commit((q) => {
+        const k = q.clips.find((x) => x.id === c.id);
+        if (!k) return;
+        if (k.kind === 'pattern') { k.len = len; return; }
+        if (stretch && buf) {
+          // Shift: stretch the whole audio to `len` beats
+          const beatsAt1 = (buf.duration * p.bpm) / 60;
+          k.speed = BF.clamp(beatsAt1 / len, 0.25, 4, 1);
+          if (k.mode === 'fit') k.mode = 'stretch';
+          k.len = 0;
+        } else {
+          const nat = (BF.audio.clipNaturalSec(k, p.bpm) * p.bpm) / 60;
+          k.len = len >= nat - 1e-3 ? 0 : len;
+        }
+      }, key, 'clips');
+    }, () => { if (stretch) BF.ui.toast('Stretched. Tempo changed, pitch kept. Use the clip panel to switch to Resample.'); });
+  }
+
+  function startErase(e) {
+    const key = `erase-${e.timeStamp}`;
+    drag = { type: 'erase' };
+    track(e, (ev) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.pclip');
+      if (el) eraseClip(el.dataset.id, key);
+    });
+  }
+  function eraseClip(id, key) {
+    if (!BF.project.clips.some((c) => c.id === id)) return;
+    P.sel.delete(id);
+    BF.commit((q) => { q.clips = q.clips.filter((c) => c.id !== id); }, key);
+  }
+
+  function startBox(e) {
+    const box = document.createElement('div');
+    box.className = 'sel-box';
+    inner.append(box);
+    const r0 = inner.getBoundingClientRect();
+    const x0 = e.clientX - r0.left, y0 = e.clientY - r0.top;
+    if (!e.shiftKey) P.sel.clear();
+    drag = { type: 'box' };
+    track(e, (ev) => {
+      const r = inner.getBoundingClientRect();
+      const x1 = ev.clientX - r.left, y1 = ev.clientY - r.top;
+      Object.assign(box.style, { left: `${Math.min(x0, x1)}px`, top: `${Math.min(y0, y1)}px`, width: `${Math.abs(x1 - x0)}px`, height: `${Math.abs(y1 - y0)}px` });
+    }, (ev) => {
+      const br = box.getBoundingClientRect();
+      tracksEl.querySelectorAll('.pclip').forEach((el) => {
+        const cr = el.getBoundingClientRect();
+        if (cr.right > br.left && cr.left < br.right && cr.bottom > br.top && cr.top < br.bottom) P.sel.add(el.dataset.id);
+      });
+      box.remove();
+      markSel(); renderPanel();
+      void ev;
+    });
+  }
+
+  function sliceClip(c, at) {
+    const len = clipLen(c);
+    if (at <= c.start + 0.01 || at >= c.start + len - 0.01) return;
+    if (c.kind === 'audio') { BF.ui.toast('Slicing audio clips is not supported yet. Trim with the right edge instead.'); return; }
+    BF.commit((q) => {
+      const k = q.clips.find((x) => x.id === c.id);
+      const right = { ...k, id: BF.uid('c'), start: at, len: k.start + k.len - at };
+      k.len = at - k.start;
+      // the right half should continue inside the pattern, so we make it a new pattern copy that starts later
+      const pt = q.patterns.find((x) => x.id === k.patternId);
+      const offSteps = Math.round(k.len * 4);
+      if (pt && offSteps > 0 && offSteps < pt.length) {
+        const np = BF.patterns.sliceCopy(q, pt, offSteps);
+        right.patternId = np.id;
+      }
+      q.clips.push(right);
+    });
+  }
+
+  // ---------- keyboard ----------
+  function keys(e) {
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key;
+    const sel = () => BF.project.clips.filter((c) => P.sel.has(c.id));
+    if (k === 'Delete' || k === 'Backspace') {
+      if (!P.sel.size) return;
+      e.preventDefault(); e.stopPropagation();
+      const ids = new Set(P.sel); P.sel.clear();
+      BF.commit((q) => { q.clips = q.clips.filter((c) => !ids.has(c.id)); });
+    } else if (mod && k.toLowerCase() === 'b') { // duplicate after the selection
+      e.preventDefault(); e.stopPropagation();
+      const s = sel();
+      if (!s.length) return;
+      const min = Math.min(...s.map((c) => c.start)), max = Math.max(...s.map((c) => c.start + clipLen(c)));
+      const span = Math.ceil((max - min) / (P.snap || 1) - 1e-6) * (P.snap || 1);
+      const copies = s.map((c) => ({ ...c, id: BF.uid('c'), start: c.start + span }));
+      BF.commit((q) => q.clips.push(...copies));
+      P.sel = new Set(copies.map((c) => c.id));
+      markSel();
+    } else if (mod && k.toLowerCase() === 'a') {
+      e.preventDefault(); e.stopPropagation();
+      P.sel = new Set(BF.project.clips.map((c) => c.id)); markSel(); renderPanel();
+    } else if ((k === 'ArrowLeft' || k === 'ArrowRight') && P.sel.size) {
+      e.preventDefault(); e.stopPropagation();
+      const d = (k === 'ArrowLeft' ? -1 : 1) * (P.snap || 1);
+      BF.commit((q) => q.clips.forEach((c) => { if (P.sel.has(c.id)) c.start = Math.max(0, c.start + d); }), `arrow-${k}`);
+    } else if ((k === 'ArrowUp' || k === 'ArrowDown') && P.sel.size) {
+      e.preventDefault(); e.stopPropagation();
+      const d = k === 'ArrowUp' ? -1 : 1;
+      BF.commit((q) => q.clips.forEach((c) => { if (P.sel.has(c.id)) c.track = Math.min(BF.TRACKS - 1, Math.max(0, c.track + d)); }), `arrow-${k}`);
+    } else if (!mod) {
+      const t = { p: 'draw', b: 'paint', d: 'delete', c: 'slice', e: 'select' }[k.toLowerCase()];
+      if (t) { e.preventDefault(); e.stopPropagation(); P.setTool(t); }
+    }
+  }
+
+  // ---------- selected audio clip panel ----------
+  function renderPanel() {
+    const p = BF.project;
+    const c = P.sel.size === 1 ? p.clips.find((x) => P.sel.has(x.id) && x.kind === 'audio') : null;
+    panel.hidden = !c;
+    panel.textContent = '';
+    if (!c) return;
+    const s = p.samples[c.sampleId];
+    const name = document.createElement('strong'); name.textContent = s ? s.name : 'Audio';
+    const mode = document.createElement('select');
+    mode.setAttribute('aria-label', 'Stretch mode');
+    [['stretch', 'Stretch (keep pitch)'], ['resample', 'Resample (pitch follows speed)'], ['fit', 'Fit to tempo']].forEach(([v, l]) => mode.add(new Option(l, v)));
+    mode.value = c.mode;
+    mode.addEventListener('change', () => BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); k.mode = mode.value; k.len = 0; }));
+    const upd = (f, key) => BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); if (k) f(k); }, key, 'clips');
+    const speed = BF.ui.knob({ param: { name: 'Speed', min: 0.25, max: 4, default: 1, curve: 'log', fmt: (v) => `${Math.round(v * 100)}%` }, value: BF.audio.clipSpeed(c), onInput: (v) => upd((k) => { k.speed = v; if (k.mode === 'fit') k.mode = 'stretch'; k.len = 0; }, `spd-${c.id}`) });
+    const pitch = BF.ui.knob({ param: { name: 'Pitch', min: -24, max: 24, default: 0, step: 1, unit: ' st' }, value: c.pitch || 0, onInput: (v) => upd((k) => { k.pitch = v; }, `pit-${c.id}`) });
+    const gain = BF.ui.knob({ param: { name: 'Gain', min: 0, max: 2, default: 1, fmt: BF.plugins.util.pct }, value: c.gain ?? 1, onInput: (v) => upd((k) => { k.gain = v; }, `gain-${c.id}`) });
+    const bpmL = document.createElement('label'); bpmL.className = 'field'; bpmL.textContent = 'Sample BPM ';
+    const bpm = document.createElement('input'); bpm.type = 'number'; bpm.min = 40; bpm.max = 300; bpm.step = 0.01; bpm.value = c.srcBpm;
+    bpm.title = 'The tempo the audio was recorded at. Fit to tempo stretches it to the project tempo.';
+    bpm.addEventListener('change', () => BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); k.srcBpm = BF.clamp(bpm.value, 40, 300, 120); k.mode = 'fit'; k.len = 0; }));
+    bpmL.append(bpm);
+    const guess = document.createElement('button');
+    guess.className = 'btn small'; guess.textContent = 'Guess BPM';
+    guess.title = 'Assumes the audio is a whole number of bars (1, 2, 4, 8…) and works out its tempo';
+    guess.addEventListener('click', () => {
+      const buf = BF.audio.buffers.get(c.sampleId);
+      if (!buf) return;
+      let best = null;
+      for (const bars of [1, 2, 4, 8, 16, 32]) {
+        const t = (bars * 4 * 60) / buf.duration;
+        if (t >= 60 && t <= 200 && (!best || Math.abs(t - p.bpm) < Math.abs(best - p.bpm))) best = t;
+      }
+      if (!best) { BF.ui.toast('Could not guess a tempo for this length.'); return; }
+      BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); k.srcBpm = Math.round(best * 100) / 100; k.mode = 'fit'; k.len = 0; });
+      BF.ui.toast(`Guessed ${best.toFixed(2)} BPM. Fit to tempo is on.`);
+    });
+    const prev = document.createElement('button'); prev.className = 'btn small'; prev.textContent = '▶ Preview';
+    prev.addEventListener('click', () => BF.audio.previewClip(BF.project.clips.find((x) => x.id === c.id)));
+    const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = 'Tip: Shift + drag the clip edge to stretch it.';
+    speed.el.classList.add('inline'); pitch.el.classList.add('inline'); gain.el.classList.add('inline');
+    panel.append(name, mode, speed.el, pitch.el, gain.el, bpmL, guess, prev, hint);
+  }
+
+  // ---------- drawing helpers ----------
   function drawWave(cv, c) {
-    const w = Math.max(1, Math.min(4000, cv.clientWidth)), h = cv.clientHeight || 36;
+    const w = Math.max(1, Math.min(6000, cv.clientWidth)), h = cv.clientHeight || 30;
     cv.width = w; cv.height = h;
-    const pk = peaks(c.sampleId, w);
-    if (!pk) return;
+    const buf = BF.audio.buffers.get(c.sampleId);
+    if (!buf) return;
+    const natBeats = (BF.audio.clipNaturalSec(c) * BF.project.bpm) / 60;
+    const shown = clipLen(c) / natBeats; // fraction of the sample visible (trim)
+    const full = Math.max(1, Math.round(w / shown));
+    const key = `${c.sampleId}:${full}`;
+    let pk = peaks.get(key);
+    if (!pk) {
+      const d = buf.getChannelData(0);
+      pk = new Float32Array(full);
+      const per = Math.max(1, Math.floor(d.length / full));
+      for (let i = 0; i < full; i++) { let m = 0; const s = i * per; for (let j = 0; j < per; j += 4) { const v = Math.abs(d[s + j] || 0); if (v > m) m = v; } pk[i] = m; }
+      if (peaks.size > 200) peaks = new Map();
+      peaks.set(key, pk);
+    }
     const g = cv.getContext('2d');
-    g.fillStyle = '#9feaff';
-    for (let x = 0; x < w; x++) { const a = pk[x] * (h / 2 - 2); g.fillRect(x, h / 2 - a, 1, Math.max(1, a * 2)); }
+    g.fillStyle = 'rgba(255,255,255,.75)';
+    for (let x = 0; x < w; x++) { const a = (pk[x] || 0) * (h / 2 - 1); g.fillRect(x, h / 2 - a, 1, Math.max(1, a * 2)); }
+  }
+
+  function drawPatternMini(cv, c) {
+    const w = Math.max(1, Math.min(6000, cv.clientWidth)), h = cv.clientHeight || 30;
+    cv.width = w; cv.height = h;
+    const pt = BF.project.patterns.find((x) => x.id === c.patternId);
+    if (!pt) return;
+    const g = cv.getContext('2d');
+    g.fillStyle = 'rgba(0,0,0,.55)';
+    const sw = (px / 4);
+    const reps = 1;
+    void reps;
+    const chans = BF.project.channels;
+    const rowH = Math.max(1, (h - 4) / Math.max(1, chans.length));
+    chans.forEach((ch, ri) => {
+      (pt.steps[ch.id] || []).forEach((on, i) => { if (on && i < pt.length && i * sw < w) g.fillRect(i * sw, 2 + ri * rowH, Math.max(1, sw - 1), Math.max(1, rowH - 1)); });
+    });
+    const all = chans.flatMap((ch) => pt.notes[ch.id] || []);
+    if (all.length) {
+      const ks = all.map((n) => n.key), lo = Math.min(...ks), hi = Math.max(...ks);
+      all.forEach((n) => { if (n.start < pt.length) g.fillRect(n.start * sw, hi === lo ? h / 2 : 2 + (1 - (n.key - lo) / (hi - lo)) * (h - 6), Math.max(1, n.len * sw - 1), 2); });
+    }
   }
 
   P.drawPlayhead = function (beat) {
-    if (!playhead) return;
-    playhead.style.transform = `translateX(${LABEL_W + beat * PX}px)`;
+    if (playhead) playhead.style.transform = `translateX(${HEADW + beat * px}px)`;
   };
-
-  /** Keep the playhead in view while playing in Song mode. */
   P.follow = function (beat) {
-    const x = LABEL_W + beat * PX;
-    if (x > root.scrollLeft + root.clientWidth - 60 || x < root.scrollLeft + LABEL_W) root.scrollLeft = Math.max(0, x - LABEL_W - 40);
-  };
-
-  // ---------- selected clip panel ----------
-  P.syncPanel = function () {
-    const panel = document.getElementById('clipPanel');
-    const c = BF.project.clips.find((x) => x.id === P.selected);
-    if (!c) { panel.hidden = true; if (P.selected) P.selected = null; return; }
-    panel.hidden = false;
-    const s = BF.project.samples[c.sampleId];
-    document.getElementById('clipName').textContent = s ? s.name : 'Clip';
-    const slider = document.getElementById('clipSpeed');
-    const pct = Math.round(c.speed * 100);
-    if (document.activeElement !== slider) slider.value = pct;
-    document.getElementById('clipSpeedVal').textContent = `${pct}%`;
+    const x = HEADW + beat * px;
+    if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft + HEADW) scroller.scrollLeft = Math.max(0, x - HEADW - 40);
   };
 })();

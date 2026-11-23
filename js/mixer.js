@@ -1,84 +1,169 @@
-/* mixer.js: one strip per sequencer track and per playlist lane, plus master. */
+/* mixer.js: Master + 16 inserts. Each strip: meter, fader, pan, mute, solo. The selected insert's effect slots
+ * (up to 10, processed top to bottom) are shown on the right: add, open, bypass, reorder, remove. */
 (function () {
   'use strict';
-  const BF = (window.BF = window.BF || {});
-  const M = (BF.mixer = {});
-  const strips = [];
-  let master;
+  const BF = window.BF;
+  const M = (BF.mixer = { selected: 0 });
+  let root, stripsEl, slotsEl, meters = [];
+  const MAX_FX = 10;
 
-  function strip(root, kind, i, label) {
+  M.build = function () {
+    root = document.createElement('div');
+    root.className = 'mx';
+    stripsEl = document.createElement('div');
+    stripsEl.className = 'mx-strips';
+    slotsEl = document.createElement('div');
+    slotsEl.className = 'mx-slots';
+    root.append(stripsEl, slotsEl);
+    return root;
+  };
+
+  function strip(i) {
+    const p = BF.project, m = p.mixer[i];
     const el = document.createElement('div');
-    el.className = 'strip';
-    const name = document.createElement('div');
-    name.className = 'name';
-    const vol = document.createElement('input');
-    vol.type = 'range'; vol.min = 0; vol.max = 100; vol.className = 'vol';
-    const pan = document.createElement('input');
-    pan.type = 'range'; pan.min = -100; pan.max = 100; pan.className = 'pan';
-    const panLbl = document.createElement('div');
-    panLbl.className = 'sep';
+    el.className = 'mx-strip' + (i === 0 ? ' master' : '') + (M.selected === i ? ' sel' : '');
+    el.addEventListener('pointerdown', (e) => { if (M.selected !== i && !e.target.closest('input,.knob')) { M.selected = i; M.render(); } });
+    const num = document.createElement('div');
+    num.className = 'mx-num';
+    num.textContent = i === 0 ? 'M' : String(i);
+    const name = document.createElement('button');
+    name.className = 'mx-name';
+    name.textContent = m.name;
+    name.title = `${m.name}: click to show its effects, double-click to rename`;
+    name.addEventListener('click', () => { M.selected = i; M.render(); });
+    name.addEventListener('dblclick', () => { const n = BF.ui.prompt('Insert name', m.name); if (n) BF.commit((q) => { q.mixer[i].name = n; }); });
+    const fxDot = document.createElement('div');
+    fxDot.className = 'mx-fxcount';
+    fxDot.textContent = m.fx.length ? `${m.fx.length} fx` : '';
+    const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`) }, value: m.pan, compact: true, label: `${m.name} pan`, onInput: (v) => BF.commit((q) => { q.mixer[i].pan = v; }, `mxpan-${i}`, 'mix') });
+    const body = document.createElement('div');
+    body.className = 'mx-body';
+    const meter = document.createElement('canvas');
+    meter.className = 'mx-meter';
+    meter.width = 8; meter.height = 120;
+    meters[i] = { cv: meter, hold: 0 };
+    const fader = document.createElement('input');
+    fader.type = 'range'; fader.min = 0; fader.max = 125; fader.value = Math.round(m.volume * 100);
+    fader.className = 'mx-fader';
+    fader.setAttribute('aria-label', `${m.name} volume`);
+    fader.setAttribute('aria-valuetext', `${Math.round(m.volume * 100)}%`);
+    fader.title = 'Volume (double-click: 80%)';
+    fader.addEventListener('input', () => BF.commit((q) => { q.mixer[i].volume = fader.value / 100; }, `mxvol-${i}`, 'mix'));
+    fader.addEventListener('dblclick', () => BF.commit((q) => { q.mixer[i].volume = 0.8; }));
+    body.append(meter, fader);
+    const vol = document.createElement('div');
+    vol.className = 'mx-vol';
+    vol.textContent = `${Math.round(m.volume * 100)}%`;
     const ms = document.createElement('div');
     ms.className = 'ms';
     const mute = document.createElement('button');
-    mute.className = 'mute'; mute.textContent = 'M';
-    const solo = document.createElement('button');
-    solo.className = 'solo'; solo.textContent = 'S';
-    ms.append(mute, solo);
-    el.append(name, vol, panLbl, pan, ms);
-    root.append(el);
-
-    const ch = () => BF.project[kind][i];
-    vol.addEventListener('input', () => BF.commit((p) => { p[kind][i].volume = vol.value / 100; }, `vol-${kind}-${i}`, 'mix'));
-    pan.addEventListener('input', () => BF.commit((p) => { p[kind][i].pan = pan.value / 100; }, `pan-${kind}-${i}`, 'mix'));
-    pan.addEventListener('dblclick', () => BF.commit((p) => { p[kind][i].pan = 0; }, null, 'mix'));
-    mute.addEventListener('click', () => BF.commit((p) => { p[kind][i].mute = !p[kind][i].mute; }, null, 'mix'));
-    solo.addEventListener('click', () => BF.commit((p) => { p[kind][i].solo = !p[kind][i].solo; }, null, 'mix'));
-    strips.push({ kind, i, ch, name, vol, pan, panLbl, mute, solo, label });
+    mute.className = 'mute'; mute.textContent = 'M'; mute.title = 'Mute';
+    mute.setAttribute('aria-pressed', String(m.mute));
+    mute.setAttribute('aria-label', `Mute ${m.name}`);
+    mute.addEventListener('click', () => BF.commit((q) => { q.mixer[i].mute = !q.mixer[i].mute; }));
+    ms.append(mute);
+    if (i > 0) {
+      const solo = document.createElement('button');
+      solo.className = 'solo'; solo.textContent = 'S'; solo.title = 'Solo';
+      solo.setAttribute('aria-pressed', String(m.solo));
+      solo.setAttribute('aria-label', `Solo ${m.name}`);
+      solo.addEventListener('click', () => BF.commit((q) => { q.mixer[i].solo = !q.mixer[i].solo; }));
+      ms.append(solo);
+    }
+    el.append(num, name, fxDot, pan.el, body, vol, ms);
+    return el;
   }
 
-  M.build = function (root) {
-    root.textContent = '';
-    strips.length = 0;
-    const g1 = document.createElement('div'); g1.className = 'mixer-group'; g1.textContent = 'Sequencer'; root.append(g1);
-    for (let i = 0; i < 8; i++) strip(root, 'tracks', i, `Track ${i + 1}`);
-    const g2 = document.createElement('div'); g2.className = 'mixer-group'; g2.textContent = 'Playlist'; root.append(g2);
-    for (let i = 0; i < 8; i++) strip(root, 'lanes', i, `Lane ${i + 1}`);
+  function slots() {
+    const p = BF.project, i = M.selected, m = p.mixer[i];
+    slotsEl.textContent = '';
+    const h = document.createElement('div');
+    h.className = 'mx-slots-h';
+    h.textContent = `${i === 0 ? 'Master' : `Insert ${i}`}: ${m.name}`;
+    slotsEl.append(h);
+    const routed = p.channels.filter((c) => c.insert === i).map((c) => c.name);
+    const info = document.createElement('div');
+    info.className = 'hint';
+    info.textContent = i === 0 ? 'Everything ends up here.' : routed.length ? `Channels: ${routed.join(', ')}` : 'No channels routed here yet (set the number in the channel rack).';
+    slotsEl.append(info);
+    m.fx.forEach((f, k) => {
+      const row = document.createElement('div');
+      row.className = 'slot' + (f.bypass ? ' off' : '');
+      const on = document.createElement('button');
+      on.className = 'led';
+      on.setAttribute('aria-pressed', String(!f.bypass));
+      on.setAttribute('aria-label', `${BF.plugins.get(f.plugin).name} on/off`);
+      on.title = 'On / bypass';
+      on.addEventListener('click', () => BF.commit((q) => { q.mixer[i].fx[k].bypass = !q.mixer[i].fx[k].bypass; }));
+      const open = document.createElement('button');
+      open.className = 'slot-name';
+      open.textContent = `${k + 1}. ${BF.plugins.get(f.plugin).name}`;
+      open.title = 'Open effect';
+      open.addEventListener('click', () => BF.editor.openEffect(i, f.id));
+      const up = document.createElement('button'); up.className = 'btn small icon'; up.textContent = '↑'; up.disabled = k === 0; up.setAttribute('aria-label', 'Move up');
+      const dn = document.createElement('button'); dn.className = 'btn small icon'; dn.textContent = '↓'; dn.disabled = k === m.fx.length - 1; dn.setAttribute('aria-label', 'Move down');
+      const rm = document.createElement('button'); rm.className = 'btn small icon danger'; rm.textContent = '×'; rm.setAttribute('aria-label', 'Remove effect'); rm.title = 'Remove';
+      const swap = (a, b) => BF.commit((q) => { const fx = q.mixer[i].fx; [fx[a], fx[b]] = [fx[b], fx[a]]; });
+      up.addEventListener('click', () => swap(k, k - 1));
+      dn.addEventListener('click', () => swap(k, k + 1));
+      rm.addEventListener('click', () => { BF.commit((q) => { q.mixer[i].fx.splice(k, 1); }); BF.editor.closeIf(f.id); });
+      row.append(on, open, up, dn, rm);
+      slotsEl.append(row);
+    });
+    if (m.fx.length < MAX_FX) {
+      const add = document.createElement('select');
+      add.className = 'slot-add';
+      add.setAttribute('aria-label', 'Add an effect');
+      add.add(new Option('+ Add effect…', ''));
+      BF.plugins.list('effect').forEach((d) => add.add(new Option(d.name, d.id)));
+      add.addEventListener('change', () => {
+        if (!add.value) return;
+        const fx = { id: BF.uid('fx'), plugin: add.value, params: BF.plugins.defaults(add.value), bypass: false };
+        BF.commit((q) => { q.mixer[i].fx.push(fx); });
+        BF.editor.openEffect(i, fx.id);
+      });
+      slotsEl.append(add);
+    }
+  }
 
-    const el = document.createElement('div');
-    el.className = 'strip master';
-    const name = document.createElement('div'); name.className = 'name'; name.textContent = 'Master';
-    const vol = document.createElement('input');
-    vol.type = 'range'; vol.min = 0; vol.max = 100; vol.className = 'vol';
-    vol.setAttribute('aria-label', 'Master volume');
-    const val = document.createElement('div'); val.className = 'sep';
-    vol.addEventListener('input', () => BF.commit((p) => { p.masterVolume = vol.value / 100; }, 'vol-master', 'mix'));
-    el.append(name, vol, val);
-    root.append(el);
-    master = { vol, val };
+  M.render = function () {
+    if (!root) return;
+    const sl = stripsEl.scrollLeft;
+    stripsEl.textContent = '';
+    meters = [];
+    for (let i = 0; i <= BF.INSERTS; i++) stripsEl.append(strip(i));
+    stripsEl.scrollLeft = sl;
+    slots();
   };
 
-  M.sync = function (force = false) {
-    const p = BF.project;
-    strips.forEach((s) => {
-      const c = s.ch();
-      const title = s.kind === 'tracks' ? `${s.i + 1} ${c.name}` : c.name;
-      s.name.textContent = title;
-      s.name.title = title;
-      if (force || document.activeElement !== s.vol) s.vol.value = Math.round(c.volume * 100);
-      if (force || document.activeElement !== s.pan) s.pan.value = Math.round(c.pan * 100);
-      s.vol.setAttribute('aria-label', `${title} volume`);
-      s.vol.setAttribute('aria-valuetext', `${Math.round(c.volume * 100)}%`);
-      s.pan.setAttribute('aria-label', `${title} pan`);
-      const pv = Math.round(c.pan * 100);
-      s.panLbl.textContent = pv === 0 ? 'C' : pv < 0 ? `L${-pv}` : `R${pv}`;
-      s.pan.title = 'Pan (double-click to centre)';
-      s.mute.setAttribute('aria-pressed', String(c.mute));
-      s.solo.setAttribute('aria-pressed', String(c.solo));
-      s.mute.setAttribute('aria-label', `Mute ${title}`);
-      s.solo.setAttribute('aria-label', `Solo ${title}`);
-      s.mute.title = 'Mute'; s.solo.title = 'Solo';
+  /** Update fader/pan labels after a 'mix' change without rebuilding (so drags continue). */
+  M.syncLabels = function () {
+    if (!root) return;
+    stripsEl.querySelectorAll('.mx-strip').forEach((el, i) => {
+      const m = BF.project.mixer[i];
+      el.querySelector('.mx-vol').textContent = `${Math.round(m.volume * 100)}%`;
+      el.querySelector('.mx-fader').setAttribute('aria-valuetext', `${Math.round(m.volume * 100)}%`);
     });
-    if (force || document.activeElement !== master.vol) master.vol.value = Math.round(p.masterVolume * 100);
-    master.val.textContent = `${Math.round(p.masterVolume * 100)}%`;
+  };
+
+  /** Called every animation frame while the mixer is visible. */
+  M.meters = function () {
+    if (!root || !BF.audio.graph) return;
+    meters.forEach((mt, i) => {
+      if (!mt) return;
+      const pk = BF.audio.peak(i);
+      mt.hold = Math.max(pk, mt.hold * 0.92);
+      const g = mt.cv.getContext('2d');
+      const H = mt.cv.height;
+      g.clearRect(0, 0, 8, H);
+      g.fillStyle = '#0b0d10';
+      g.fillRect(0, 0, 8, H);
+      const db = 20 * Math.log10(Math.max(1e-5, mt.hold));
+      const n = Math.max(0, Math.min(1, (db + 48) / 54)); // -48..+6 dB
+      g.fillStyle = mt.hold >= 1 ? '#ff6b6b' : db > -6 ? '#ffd24a' : '#3ddc84';
+      g.fillRect(0, H - n * H, 8, n * H);
+      g.fillStyle = 'rgba(255,255,255,.35)';
+      g.fillRect(0, H - ((0 + 48) / 54) * H, 8, 1); // 0 dB mark
+    });
   };
 })();
