@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the desktop apps: dist/BeatForge-<ver>-win-x64.zip and dist/BeatForge-<ver>-linux-x64.tar.gz
+# Build the desktop apps: dist/BeatForge-<ver>-win-x64.zip, -linux-x64.tar.gz, -mac-x64.zip and -mac-arm64.zip
 # Needs the official Electron zips (checked against SHASUMS256.txt) in $ELECTRON_DIR.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -30,6 +30,31 @@ for plat in win32-x64 linux-x64; do
     cp README.md "$out/README.md"
     tar -C dist/stage -czf "dist/BeatForge-$VER-linux-x64.tar.gz" "BeatForge-$plat"
   fi
+done
+# macOS (Intel and Apple Silicon). NOT code-signed (needs a paid Apple developer account): the user clears the
+# download quarantine and ad-hoc signs it once (see README / website), then it opens normally.
+for arch in x64 arm64; do
+  plat=darwin-$arch
+  zip="$ELECTRON_DIR/electron-v$EV-$plat.zip"
+  (cd "$ELECTRON_DIR" && grep " \*electron-v$EV-$plat.zip$" SHASUMS256.txt | sed 's/ \*/  /' | sha256sum -c --quiet)
+  out=dist/stage/BeatForge-$plat
+  mkdir -p "$out" && unzip -q "$zip" -d "$out"
+  mv "$out/Electron.app" "$out/BeatForge.app"
+  res="$out/BeatForge.app/Contents/Resources"
+  rm -f "$res/default_app.asar"
+  app "$res/app"
+  cp desktop/icon.icns "$res/electron.icns"
+  python3 - "$out/BeatForge.app/Contents/Info.plist" "$VER" <<'PY'
+import plistlib, sys
+p, ver = sys.argv[1], sys.argv[2]
+d = plistlib.load(open(p, 'rb'))
+d.update({'CFBundleName': 'BeatForge', 'CFBundleDisplayName': 'BeatForge', 'CFBundleIdentifier': 'com.grbnstudios.beatforge',
+          'CFBundleShortVersionString': ver, 'CFBundleVersion': ver, 'NSMicrophoneUsageDescription': 'BeatForge records audio from your microphone or line input when you record audio.'})
+d.pop('NSCameraUsageDescription', None)
+plistlib.dump(d, open(p, 'wb'))
+PY
+  cp README.md "$out/README.md"
+  (cd dist/stage && zip -qry9 "../BeatForge-$VER-mac-$arch.zip" "BeatForge-$plat")
 done
 node tools/make-update.js
 (cd dist && sha256sum BeatForge-* beatforge-app-* > SHA256SUMS.txt && ls -la)

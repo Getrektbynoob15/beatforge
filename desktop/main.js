@@ -208,7 +208,8 @@ ipcMain.handle('update:auto-due', () => {
 });
 
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
+  // Windows/Linux: no menu bar (the app has its own). macOS always shows one: keep just the app menu (Quit, Hide).
+  Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }]) : null);
   // The page may only load its own files, data: and blob: URLs. (Update checks run in this main process.)
   session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
     cb({ cancel: !/^(file|data|blob|devtools):/.test(details.url) });

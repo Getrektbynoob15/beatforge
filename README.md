@@ -10,6 +10,14 @@ No account, no internet, no tracking.
   Windows SmartScreen may warn because the app is not code-signed: click *More info* → *Run anyway*.
 - **Linux:** download `BeatForge-x.y.z-linux-x64.tar.gz`, then
   `tar xzf BeatForge-*-linux-x64.tar.gz && ./BeatForge-linux-x64/beatforge`
+- **Mac:** download `BeatForge-x.y.z-mac-arm64.zip` (Apple Silicon: M1/M2/M3/M4) or `-mac-x64.zip` (older Intel Macs),
+  unzip it and drag `BeatForge.app` into Applications. The app is not signed by Apple (that needs a paid developer account),
+  so macOS will say it "is damaged" or "cannot be checked". Open Terminal once and run:
+  ```
+  xattr -cr /Applications/BeatForge.app
+  codesign --force --deep -s - /Applications/BeatForge.app
+  ```
+  Then open it normally. (The first command removes the "downloaded from the internet" flag, the second gives it a local signature.)
 - **Browser:** download or clone this repo and open `index.html` (Chrome, Edge or Firefox).
 
 ## How to use it
@@ -70,9 +78,13 @@ arrange them in the **playlist**, and mix in the **mixer**. Everything opens as 
 
 ## Plugins
 
-BeatForge has its own small plugin format (`js/plugins/`). An instrument is a `play(ctx, out, params, time, key, vel, dur)`
-function; an effect returns Web Audio nodes from `create(ctx)`. Every plugin declares its parameters, so it gets an editor,
-presets, saving and validation for free. VST/AU plugins cannot run inside a web app, so they are not supported.
+**Community plugins:** View → Plugin store… installs instruments and effects made by other people. Every plugin is checked
+by GRBN Studios before it appears, the list is signed, and a plugin runs only on the audio thread (no access to your files,
+projects or the internet). Make your own: [beatforge-plugins](https://github.com/Getrektbynoob15/beatforge-plugins), and
+submit it at [grbnstudios.com/beatforge-plugins](https://grbnstudios.com/beatforge-plugins).
+
+The built-in instruments and effects use a separate internal format (`js/plugins/`). VST/AU plugins cannot run inside a
+web app, so they are not supported.
 
 ## How it works
 
@@ -88,7 +100,8 @@ Build the desktop apps with `./build.sh` (needs the official Electron 33.2.1 zip
 ## Known limitations
 
 - No VST/AU plugins (see above). No direct `.flp` import (use MIDI).
-- Desktop builds are not code-signed, so Windows may warn on first start. No macOS build yet.
+- Desktop builds are not code-signed: Windows may warn on first start, and macOS needs the two Terminal commands above.
+  The Windows and Mac builds are made on Linux and have not been tested on real Windows or Mac machines yet.
 - Slicing works on pattern clips only; audio clips can be trimmed from the right edge.
 - Time stretch is a simple WSOLA: great for loops and vocals, it can smear sharp drum hits at extreme speeds.
 - Projects with lots of audio get big, since the audio is stored inside the file.
