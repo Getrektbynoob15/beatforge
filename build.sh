@@ -29,6 +29,28 @@ for plat in win32-x64 linux-x64; do
     cp desktop/icon.png "$out/beatforge.png"
     cp README.md "$out/README.md"
     tar -C dist/stage -czf "dist/BeatForge-$VER-linux-x64.tar.gz" "BeatForge-$plat"
+    # Debian/Ubuntu/Mint package: double-click to install, shows up in the app menu
+    deb=dist/stage/deb
+    mkdir -p "$deb/DEBIAN" "$deb/opt" "$deb/usr/bin" "$deb/usr/share/applications" "$deb/usr/share/icons/hicolor/512x512/apps"
+    cp -r "$out" "$deb/opt/beatforge"
+    ln -s /opt/beatforge/beatforge "$deb/usr/bin/beatforge"
+    cp desktop/icon.png "$deb/usr/share/icons/hicolor/512x512/apps/beatforge.png"
+    printf '[Desktop Entry]\nName=BeatForge\nComment=Make beats: channel rack, piano roll, playlist and mixer\nExec=/opt/beatforge/beatforge %%U\nIcon=beatforge\nType=Application\nCategories=AudioVideo;Audio;Music;\nStartupWMClass=BeatForge\nTerminal=false\n' > "$deb/usr/share/applications/beatforge.desktop"
+    cat > "$deb/DEBIAN/control" <<CTRL
+Package: beatforge
+Version: $VER
+Architecture: amd64
+Maintainer: GRBN Studios <noreply@grbnstudios.com>
+Homepage: https://grbnstudios.com/beatforge
+Section: sound
+Priority: optional
+Depends: libgtk-3-0 | libgtk-3-0t64, libnss3, libasound2 | libasound2t64, libxss1, libxtst6, libgbm1, xdg-utils
+Description: Free music maker (channel rack, piano roll, playlist, mixer)
+ BeatForge is a free, open-source music maker by GRBN Studios. It updates itself.
+CTRL
+    printf '#!/bin/sh\nset -e\nchmod 4755 /opt/beatforge/chrome-sandbox || true\nupdate-desktop-database -q /usr/share/applications 2>/dev/null || true\n' > "$deb/DEBIAN/postinst"
+    chmod 755 "$deb/DEBIAN/postinst"
+    fakeroot dpkg-deb --build --root-owner-group -Zxz "$deb" "dist/BeatForge-$VER-linux-amd64.deb" >/dev/null
   fi
 done
 # macOS (Intel and Apple Silicon). NOT code-signed (needs a paid Apple developer account): the user clears the
