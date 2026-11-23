@@ -38,7 +38,7 @@
     const fxDot = document.createElement('div');
     fxDot.className = 'mx-fxcount';
     fxDot.textContent = m.fx.length ? `${m.fx.length} fx` : '';
-    const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`) }, value: m.pan, compact: true, label: `${m.name} pan`, onInput: (v) => BF.commit((q) => { q.mixer[i].pan = v; }, `mxpan-${i}`, 'mix') });
+    const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`) }, value: m.pan, compact: true, label: `${m.name} pan`, target: { kind: 'mx', insert: i, field: 'pan' }, onInput: (v) => BF.commit((q) => { q.mixer[i].pan = v; }, `mxpan-${i}`, 'mix') });
     const body = document.createElement('div');
     body.className = 'mx-body';
     const meter = document.createElement('canvas');
@@ -53,6 +53,7 @@
     fader.title = 'Volume (double-click: 80%)';
     fader.addEventListener('input', () => BF.commit((q) => { q.mixer[i].volume = fader.value / 100; }, `mxvol-${i}`, 'mix'));
     fader.addEventListener('dblclick', () => BF.commit((q) => { q.mixer[i].volume = 0.8; }));
+    fader.addEventListener('contextmenu', (e) => { e.preventDefault(); BF.auto.menu(e.clientX, e.clientY, { kind: 'mx', insert: i, field: 'volume' }, () => BF.commit((q) => { q.mixer[i].volume = 0.8; })); });
     body.append(meter, fader);
     const vol = document.createElement('div');
     vol.className = 'mx-vol';

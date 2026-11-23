@@ -117,6 +117,8 @@
       b.title = 'Click: pick this pattern to draw. Double-click: rename. Right-click: options.';
       b.addEventListener('click', () => { P.pick = { kind: 'pattern' }; BF.setView((q) => { q.currentPattern = pt.id; }, 'pattern'); });
       b.addEventListener('dblclick', () => BF.patterns.rename(pt.id));
+      b.draggable = true;
+      b.addEventListener('dragstart', (e) => { e.dataTransfer.setData('application/x-beatforge', JSON.stringify({ kind: 'pattern', patternId: pt.id })); e.dataTransfer.effectAllowed = 'copy'; });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); BF.ui.menu(e.clientX, e.clientY, BF.patterns.menu(pt.id)); });
       picker.append(b);
     });
@@ -135,6 +137,8 @@
         b.textContent = p.samples[id].name;
         b.setAttribute('aria-pressed', String(P.pick.kind === 'audio' && P.pick.sampleId === id));
         b.title = 'Click: pick this audio to draw in the playlist. It plays when clicked.';
+        b.draggable = true;
+        b.addEventListener('dragstart', (e) => { e.dataTransfer.setData('application/x-beatforge', JSON.stringify({ kind: 'audio', sampleId: id })); e.dataTransfer.effectAllowed = 'copy'; });
         b.addEventListener('click', () => {
           P.pick = { kind: 'audio', sampleId: id };
           BF.audio.previewClip({ kind: 'audio', sampleId: id, mode: 'resample', speed: 1, pitch: 0, len: 0, track: 0 });
@@ -218,7 +222,11 @@
         e.preventDefault(); e.stopPropagation();
         lane.classList.remove('drop');
         const pl = BF.browser.payload(e);
-        if (pl && pl.kind === 'audio') { P.pick = { kind: 'audio', sampleId: pl.sampleId }; place(ti, Math.max(0, snap(xToBeat(e.clientX), 'floor'))); return; }
+        const at = Math.max(0, snap(xToBeat(e.clientX), 'floor'));
+        if (pl && pl.kind === 'audio') { P.pick = { kind: 'audio', sampleId: pl.sampleId }; place(ti, at); return; }
+        if (pl && pl.kind === 'pattern') { P.pick = { kind: 'pattern' }; BF.setView((q) => { q.currentPattern = pl.patternId; }, 'pattern'); place(ti, at); return; }
+        if (pl && pl.kind === 'instrument') { BF.rack.addChannel(pl.plugin, pl.preset, pl.name); BF.win.toggle('rack', true); return; }
+        if (pl) return;
         const files = [...(e.dataTransfer?.files || [])];
         if (files.length) BF.io.importToPlaylist(files, ti, Math.max(0, snap(xToBeat(e.clientX), 'floor')));
       });
@@ -247,6 +255,9 @@
       const pt = p.patterns.find((x) => x.id === c.patternId);
       name = pt ? pt.name : '?';
       el.style.setProperty('--c', pt ? pt.color : '#888');
+    } else if (c.kind === 'auto') {
+      const d = BF.auto.describe(c.target);
+      name = `⟋ ${d ? d.name : 'missing'}`;
     } else {
       const s = p.samples[c.sampleId];
       name = s ? s.name : 'missing';
@@ -263,6 +274,10 @@
       const cv = document.createElement('canvas');
       el.prepend(cv);
       requestAnimationFrame(() => drawPatternMini(cv, c));
+    } else if (c.kind === 'auto') {
+      const cv = document.createElement('canvas');
+      el.prepend(cv);
+      requestAnimationFrame(() => BF.auto.drawMini(cv, c));
     } else {
       const cv = document.createElement('canvas');
       el.prepend(cv);
@@ -272,7 +287,7 @@
     edge.className = 'pclip-edge';
     edge.title = 'Drag to resize. Shift+drag: stretch audio.';
     el.append(edge);
-    el.setAttribute('aria-label', `${c.kind === 'pattern' ? 'Pattern' : 'Audio'} clip ${name}, track ${c.track + 1}, bar ${Math.floor(c.start / 4) + 1}. Arrows move, Delete removes, Enter opens.`);
+    el.setAttribute('aria-label', `${{ pattern: 'Pattern', audio: 'Audio', auto: 'Automation' }[c.kind]} clip ${name}, track ${c.track + 1}, bar ${Math.floor(c.start / 4) + 1}. Arrows move, Delete removes, Enter opens.`);
     el.addEventListener('pointerdown', (e) => clipDown(e, c, e.target === edge));
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('dblclick', () => openClip(c));
@@ -282,6 +297,7 @@
   }
 
   function openClip(c) {
+    if (c.kind === 'auto') { BF.auto.open(c.id); return; }
     if (c.kind === 'pattern') {
       BF.setView((q) => { q.currentPattern = c.patternId; }, 'pattern');
       BF.win.toggle('rack', true);
@@ -357,6 +373,7 @@
     if (!P.sel.has(c.id)) { P.sel = new Set([c.id]); markSel(); renderPanel(); }
     if (c.kind === 'pattern' && BF.project.currentPattern !== c.patternId) { P.pick = { kind: 'pattern' }; BF.setView((q) => { q.currentPattern = c.patternId; }, 'pattern'); }
     if (c.kind === 'audio') P.pick = { kind: 'audio', sampleId: c.sampleId };
+    if (c.kind === 'auto') BF.auto.open(c.id);
     const beat = xToBeat(e.clientX);
     if (onEdge) startResize(e, c, e.shiftKey);
     else {
@@ -403,7 +420,7 @@
       BF.commit((q) => {
         const k = q.clips.find((x) => x.id === c.id);
         if (!k) return;
-        if (k.kind === 'pattern') { k.len = len; return; }
+        if (k.kind !== 'audio') { k.len = len; return; }
         if (stretch && buf) {
           // Shift: stretch the whole audio to `len` beats
           const beatsAt1 = (buf.duration * p.bpm) / 60;
@@ -459,7 +476,7 @@
   function sliceClip(c, at) {
     const len = clipLen(c);
     if (at <= c.start + 0.01 || at >= c.start + len - 0.01) return;
-    if (c.kind === 'audio') { BF.ui.toast('Slicing audio clips is not supported yet. Trim with the right edge instead.'); return; }
+    if (c.kind !== 'pattern') { BF.ui.toast('Only pattern clips can be sliced. Trim audio and automation with the right edge instead.'); return; }
     BF.commit((q) => {
       const k = q.clips.find((x) => x.id === c.id);
       const right = { ...k, id: BF.uid('c'), start: at, len: k.start + k.len - at };

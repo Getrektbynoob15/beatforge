@@ -27,10 +27,11 @@
   // channel rack floating over it; mixer (F9), piano roll (F7) and plugin windows open on demand.
   BF.browser.build();
   W.create({ id: 'playlist', title: 'Playlist - Arrangement', body: BF.playlist.build(), rect: { x: 0, y: 0, w: 1, h: 1 }, open: true, hotkey: 'F5', onShow: () => BF.playlist.render() });
-  W.create({ id: 'rack', title: 'Channel rack', body: BF.rack.build(), rect: { x: 0.2, y: 0.1, w: 0.56, h: 0.52 }, open: true, hotkey: 'F6', onShow: () => BF.rack.render() });
+  W.create({ id: 'rack', title: 'Channel rack', body: BF.rack.build(), rect: { x: 0.12, y: 0.08, w: 0.74, h: 0.55 }, open: true, hotkey: 'F6', onShow: () => BF.rack.render() });
   W.create({ id: 'piano', title: 'Piano roll', body: BF.piano.build(), rect: { x: 0.06, y: 0.04, w: 0.88, h: 0.7 }, open: false, hotkey: 'F7', onShow: () => { BF.piano.sync(); BF.piano.reveal(); } });
   W.create({ id: 'mixer', title: 'Mixer', body: BF.mixer.build(), rect: { x: 0.02, y: 0.4, w: 0.96, h: 0.58 }, open: false, hotkey: 'F9', onShow: () => BF.mixer.render() });
   W.create({ id: 'editor', title: 'Plugin', body: BF.editor.build(), rect: { x: 0.5, y: 0.06, w: 0.46, h: 0.56 }, open: false, onShow: () => BF.editor.render() });
+  W.create({ id: 'auto', title: 'Automation', body: BF.auto.build(), rect: { x: 0.1, y: 0.5, w: 0.8, h: 0.42 }, open: false, onShow: () => BF.auto.render() });
   W.front('rack');
   const wsToggle = W.toggle;
   W.toggle = (id, force) => (id === 'browser' ? BF.browser.toggle(force) : wsToggle(id, force));
@@ -67,6 +68,7 @@
     if (d.has('editor') && W.isOpen('editor')) BF.editor.render();
     if (d.has('editorsync') && W.isOpen('editor')) BF.editor.sync();
     if (d.has('browser')) BF.browser.render();
+    if (d.has('auto') && W.isOpen('auto')) BF.auto.render();
   }
 
   BF.onChange((reason) => {
@@ -76,15 +78,16 @@
       case 'param': want('top'); break;
       case 'steps': want('rack', 'playlist', 'top'); break;
       case 'notes': want('piano', 'rack', 'playlist', 'top'); break;
-      case 'clips': want('playlist', 'top'); break;
+      case 'clips': want('playlist', 'top', 'auto'); break;
+      case 'auto': want('playlist', 'auto', 'top'); break;
       case 'select': want('rack', 'piano', 'top', 'browser'); break;
       case 'pattern': want('rack', 'piano', 'playlist', 'top', 'browser'); break;
       case 'transport': want('top', 'playlist'); break;
       case 'windows': want('top', 'browser'); break;
       case 'knob-end': want('rack', 'mixer', 'playlist'); break;
-      case 'undo': case 'redo': want('top', 'rack', 'playlist', 'piano', 'mixer', 'editorsync', 'browser'); break;
-      case 'load': want('top', 'rack', 'playlist', 'piano', 'mixer', 'editor', 'browser'); break;
-      default: want('top', 'rack', 'playlist', 'piano', 'mixer', 'browser');
+      case 'undo': case 'redo': want('top', 'rack', 'playlist', 'piano', 'mixer', 'editorsync', 'browser', 'auto'); break;
+      case 'load': want('top', 'rack', 'playlist', 'piano', 'mixer', 'editor', 'browser', 'auto'); break;
+      default: want('top', 'rack', 'playlist', 'piano', 'mixer', 'browser', 'auto');
     }
   });
 
@@ -96,6 +99,7 @@
     $('playBtn').textContent = T.playing ? '❚❚' : '▶';
     $('playBtn').setAttribute('aria-label', T.playing ? 'Pause' : 'Play');
     $('playBtn').setAttribute('aria-pressed', String(T.playing));
+    $('recBtn').setAttribute('aria-pressed', String(BF.rec.armed));
     [['modePattern', 'pattern'], ['modeSong', 'song']].forEach(([id, m]) => {
       $(id).classList.toggle('on', T.mode === m);
       $(id).setAttribute('aria-checked', String(T.mode === m));
@@ -107,6 +111,13 @@
 
   // ---------- top bar ----------
   $('playBtn').addEventListener('click', () => BF.transport.toggle());
+  $('recBtn').addEventListener('click', () => toggleRec());
+  function toggleRec() {
+    BF.rec.armed = !BF.rec.armed;
+    if (BF.rec.armed && !BF.piano.typing && !BF.live.devices.length) BF.ui.toast('Record is on. Turn on the typing keyboard (piano roll) or plug in a MIDI keyboard, press Space and play.');
+    else BF.ui.toast(BF.rec.armed ? `Recording into ${BF.channel()?.name || 'the selected channel'} · ${BF.pattern().name}. Press Space and play.` : 'Record off.');
+    BF.emit('transport');
+  }
   $('stopBtn').addEventListener('click', () => { BF.transport.stop(); BF.transport.startBeat = 0; BF.emit('transport'); });
   $('modePattern').addEventListener('click', () => BF.transport.setMode('pattern'));
   $('modeSong').addEventListener('click', () => BF.transport.setMode('song'));
@@ -155,6 +166,10 @@
     { label: 'Redo', hint: 'Ctrl+Shift+Z', disabled: !BF.canRedo(), action: () => BF.redo() },
     '-',
     { label: 'Rename project…', action: () => { const n = BF.ui.prompt('Project name', BF.project.name); if (n) BF.commit((p) => { p.name = n; }); } },
+    { label: 'Quantize recorded notes to 1/16', checked: BF.rec.quantize, action: () => { BF.rec.quantize = !BF.rec.quantize; } },
+    { label: 'Connect MIDI keyboard', action: () => BF.live.start(true) },
+    { label: 'Typing keyboard to piano', checked: BF.piano.typing, action: () => document.querySelector('.piano .pr-tools button[aria-pressed][title*="computer keyboard"]')?.click() },
+    '-',
     { label: 'Song length (bars)…', action: () => { const n = BF.ui.prompt('Minimum song length in bars', String(BF.project.songBars)); if (n) BF.commit((p) => { p.songBars = Math.round(BF.clamp(n, 1, 512, p.songBars)); }); } },
   ]));
   $('menuView').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
@@ -169,11 +184,15 @@
   ]));
   $('menuHelp').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
     { label: 'Keyboard shortcuts', hint: 'F1', action: showHelp },
-    { label: 'About BeatForge', action: () => BF.ui.toast('BeatForge 2: free, open source (MIT). Made by GRBN Studios.') },
+    ...(BF.desktop && BF.desktop.available ? [
+      { label: 'Check for updates…', action: () => BF.desktop.check(true) },
+      { label: 'Check for updates automatically', checked: BF.desktop.info?.settings?.autoUpdate !== false, action: async () => { const on = BF.desktop.info?.settings?.autoUpdate === false; const s = await window.beatforgeDesktop.setAutoUpdate(on); BF.desktop.info.settings = s; BF.ui.toast(on ? 'Automatic update checks on.' : 'Automatic update checks off.'); } },
+    ] : []),
+    { label: 'About BeatForge', action: () => BF.ui.toast(`BeatForge ${window.BF_VERSION || ''}${BF.desktop?.info?.updated ? ' (updated)' : ''}: free, open source (MIT). Made by GRBN Studios.`) },
   ]));
 
   const SHORTCUTS = [
-    ['Space', 'Play / pause'], ['L', 'Switch Pattern / Song mode'], ['F5 · F6 · F7 · F8 · F9', 'Playlist · Channel rack · Piano roll · Browser · Mixer'],
+    ['Space', 'Play / pause'], ['R', 'Record notes (MIDI or typing keyboard)'], ['L', 'Switch Pattern / Song mode'], ['F5 · F6 · F7 · F8 · F9', 'Playlist · Channel rack · Piano roll · Browser · Mixer'],
     ['Numpad + / −', 'Next / previous pattern'], ['Ctrl+N · Ctrl+O · Ctrl+S', 'New · Open · Save'], ['Ctrl+Shift+S', 'Save as'], ['Ctrl+R', 'Export WAV'],
     ['Ctrl+Z · Ctrl+Alt+Z', 'Undo'], ['Ctrl+Shift+Z · Ctrl+Y', 'Redo'],
     ['P · B · D · E · C', 'Draw · Paint · Delete · Select · Slice (playlist / piano roll)'], ['Right-click', 'Delete a note, clip or step'],
@@ -210,6 +229,7 @@
     if (mod && k === 'y') { e.preventDefault(); BF.redo(); return; }
     if (mod && k === 'z') { e.preventDefault(); BF.undo(); return; }
     if (e.code === 'Space') { e.preventDefault(); BF.transport.toggle(); return; }
+    if (!mod && k === 'r') { e.preventDefault(); toggleRec(); return; }
     if (!mod && k === 'l') { e.preventDefault(); BF.transport.setMode(BF.transport.mode === 'song' ? 'pattern' : 'song'); return; }
     if (e.code === 'NumpadAdd' || (e.key === '+' && !mod)) { e.preventDefault(); BF.patterns.step(1); return; }
     if (e.code === 'NumpadSubtract' || (e.key === '-' && !mod)) { e.preventDefault(); BF.patterns.step(-1); return; }
@@ -244,6 +264,7 @@
         BF.playlist.follow(beat);
       }
       if (W.isOpen('piano')) BF.piano.draw();
+      if (W.isOpen('auto')) BF.auto.draw();
     } else {
       BF.rack.light(-1);
       BF.playlist.drawPlayhead(T.mode === 'song' ? T.startBeat : 0);
@@ -256,5 +277,6 @@
 
   BF.emit('load');
   requestAnimationFrame(frame);
+  BF.live.start(false);
   BF.ui.toast('Press Space to play the demo. F6 channel rack, F7 piano roll, F9 mixer, F1 shortcuts.');
 })();

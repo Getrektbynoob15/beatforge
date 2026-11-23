@@ -120,7 +120,7 @@
   };
 
   /** Book one note of a channel's instrument into graph `g`. */
-  A.note = function (g, ch, time, key, vel, dur, preview = false) {
+  A.note = function (g, ch, time, key, vel, dur, preview = false, params = null) {
     const def = BF.plugins.get(ch.plugin);
     if (!def || def.kind !== 'instrument') return;
     let out;
@@ -134,7 +134,7 @@
     } else {
       out = chanStrip(g, ch).gain;
     }
-    def.play(g.ctx, out, ch.params, time, key + ch.pitch, vel, dur);
+    def.play(g.ctx, out, params || ch.params, time, key + ch.pitch, vel, dur);
   };
 
   A.previewNote = function (ch, key, vel = 0.8, dur = 0.35) {
@@ -164,7 +164,7 @@
   };
   /** Length in beats as shown in the playlist (trimmed length if set). */
   A.clipBeats = function (c, bpm = BF.project.bpm) {
-    if (c.kind === 'pattern') return c.len;
+    if (c.kind !== 'audio') return c.len;
     const nat = (A.clipNaturalSec(c, bpm) * bpm) / 60;
     return c.len > 0 ? Math.min(c.len, nat) : nat;
   };

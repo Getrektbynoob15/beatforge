@@ -98,9 +98,11 @@
     const grid = document.createElement('div');
     grid.className = 'ed-grid';
     def.params.forEach((pd) => {
+      const t = E.target;
+      const target = t.kind === 'channel' ? { kind: 'chp', id: t.id, param: pd.id } : { kind: 'fx', insert: t.insert, fxId: t.id, param: pd.id };
       const ctl = BF.ui.paramControl(pd, cur.obj.params[pd.id], (v) => {
         BF.commit((p) => { locate(p).params[pd.id] = v; }, `param-${E.target.id}-${pd.id}`, 'param');
-      });
+      }, { target });
       controls.set(pd.id, ctl);
       grid.append(ctl.el);
     });

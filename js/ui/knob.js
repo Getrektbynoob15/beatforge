@@ -85,6 +85,11 @@
     });
     dial.addEventListener('wheel', (e) => { e.preventDefault(); nudge((e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? 0.005 : 0.03)); }, { passive: false });
     dial.addEventListener('dblclick', () => change(p.default));
+    dial.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (opts.target && BF.auto) BF.auto.menu(e.clientX, e.clientY, opts.target, () => change(p.default));
+      else BF.ui.menu(e.clientX, e.clientY, [{ label: 'Reset to default', action: () => change(p.default) }]);
+    });
     dial.addEventListener('keydown', (e) => {
       const fine = e.shiftKey ? 0.005 : 0.02;
       const step = p.step ? Math.max(fine, toNorm(p, p.min + p.step) - toNorm(p, p.min)) : fine;
@@ -100,7 +105,7 @@
 
   /** A select / toggle / knob control for any plugin parameter. */
   BF.ui.paramControl = function (p, value, onInput, extra = {}) {
-    if (p.type === 'knob') return BF.ui.knob({ param: p, value, onInput, label: extra.label });
+    if (p.type === 'knob') return BF.ui.knob({ param: p, value, onInput, label: extra.label, target: extra.target });
     const el = document.createElement('label');
     el.className = 'param-ctl';
     const name = document.createElement('span');

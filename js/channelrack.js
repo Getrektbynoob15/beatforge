@@ -128,8 +128,8 @@
     mute.title = 'On/off (mute)';
     mute.addEventListener('click', () => BF.commit((q) => { const c = find(q, ch.id); c.mute = !c.mute; }));
 
-    const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'Centre' : v < 0 ? `${Math.round(-v * 100)}% left` : `${Math.round(v * 100)}% right`) }, value: ch.pan, compact: true, label: `${ch.name} pan`, onInput: (v) => BF.commit((q) => { find(q, ch.id).pan = v; }, `pan-${ch.id}`, 'mix') });
-    const vol = BF.ui.knob({ param: { name: 'Volume', min: 0, max: 1.25, default: 0.78, fmt: BF.plugins.util.pct }, value: ch.volume, compact: true, label: `${ch.name} volume`, onInput: (v) => BF.commit((q) => { find(q, ch.id).volume = v; }, `vol-${ch.id}`, 'mix') });
+    const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'Centre' : v < 0 ? `${Math.round(-v * 100)}% left` : `${Math.round(v * 100)}% right`) }, value: ch.pan, compact: true, label: `${ch.name} pan`, target: { kind: 'ch', id: ch.id, field: 'pan' }, onInput: (v) => BF.commit((q) => { find(q, ch.id).pan = v; }, `pan-${ch.id}`, 'mix') });
+    const vol = BF.ui.knob({ param: { name: 'Volume', min: 0, max: 1.25, default: 0.78, fmt: BF.plugins.util.pct }, value: ch.volume, compact: true, label: `${ch.name} volume`, target: { kind: 'ch', id: ch.id, field: 'volume' }, onInput: (v) => BF.commit((q) => { find(q, ch.id).volume = v; }, `vol-${ch.id}`, 'mix') });
 
     const ins = document.createElement('input');
     ins.type = 'number'; ins.min = 0; ins.max = BF.INSERTS; ins.value = ch.insert; ins.className = 'rack-ins';

@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="logo" aria-hidden="true">◆</span> BeatForge</div>
+    <div class="brand"><span class="logo" aria-hidden="true">◆</span><span class="brand-l"> BeatForge</span></div>
     <nav class="menus" aria-label="Menus">
       <button class="menu-btn" id="menuFile" aria-haspopup="menu">File</button>
       <button class="menu-btn" id="menuEdit" aria-haspopup="menu">Edit</button>
@@ -24,22 +24,23 @@
       </div>
       <button id="playBtn" class="btn accent play" aria-keyshortcuts="Space" title="Play / Stop (Space)">▶</button>
       <button id="stopBtn" class="btn" title="Stop and go back to the start">■</button>
-      <label class="field">BPM
+      <button id="recBtn" class="btn rec" aria-pressed="false" title="Record notes from your MIDI or typing keyboard into the current pattern (R)" aria-label="Record">●</button>
+      <label class="field bpm-field" title="Tempo (beats per minute)"><span class="fl">BPM</span>
         <input id="bpm" type="number" min="40" max="300" step="0.1" value="130" aria-label="Tempo in beats per minute">
       </label>
       <div class="time" aria-label="Position (bar.beat.step)"><span id="posText">1.1.1</span></div>
       <div id="hint" class="hintbar" aria-live="off">Hover over anything to see what it does.</div>
-      <label class="field pat-field">Pattern
+      <label class="field pat-field" title="Current pattern (numpad + / −)"><span class="fl">Pattern</span>
         <select id="patSelect" aria-label="Current pattern (numpad + and -)"></select>
       </label>
     </div>
 
     <div class="winbtns" role="group" aria-label="Windows">
-      <button class="btn small" data-open="browser" title="Browser (F8)">Browser <kbd>F8</kbd></button>
-      <button class="btn small" data-open="playlist" title="Playlist (F5)">Playlist <kbd>F5</kbd></button>
-      <button class="btn small" data-open="rack" title="Channel rack (F6)">Rack <kbd>F6</kbd></button>
-      <button class="btn small" data-open="piano" title="Piano roll (F7)">Piano <kbd>F7</kbd></button>
-      <button class="btn small" data-open="mixer" title="Mixer (F9)">Mixer <kbd>F9</kbd></button>
+      <button class="btn small wb" data-open="browser" title="Browser (F8)" aria-label="Browser"><span class="wb-ic" aria-hidden="true">🗂</span><span class="wb-l">Browser</span></button>
+      <button class="btn small wb" data-open="playlist" title="Playlist (F5)" aria-label="Playlist"><span class="wb-ic" aria-hidden="true">▤</span><span class="wb-l">Playlist</span></button>
+      <button class="btn small wb" data-open="rack" title="Channel rack (F6)" aria-label="Channel rack"><span class="wb-ic" aria-hidden="true">⣿</span><span class="wb-l">Rack</span></button>
+      <button class="btn small wb" data-open="piano" title="Piano roll (F7)" aria-label="Piano roll"><span class="wb-ic" aria-hidden="true">🎹</span><span class="wb-l">Piano</span></button>
+      <button class="btn small wb" data-open="mixer" title="Mixer (F9)" aria-label="Mixer"><span class="wb-ic" aria-hidden="true">🎚</span><span class="wb-l">Mixer</span></button>
     </div>
     <div class="undo">
       <button id="undoBtn" class="btn small icon" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
@@ -55,12 +56,18 @@
   <input id="openInput" type="file" accept=".json,application/json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div id="busy" class="busy" hidden><div class="busy-box" role="alert"><span class="spinner" aria-hidden="true"></span> <span id="busyText">Working…</span></div></div>
+  <dialog id="updateDlg" class="dlg" aria-labelledby="updateTitle">
+    <h2 id="updateTitle">Update</h2>
+    <div id="updateBody"></div>
+    <div class="dlg-actions"><button id="updateLater" class="btn">Later</button> <button id="updateGo" class="btn accent">Update now</button></div>
+  </dialog>
   <dialog id="helpDlg" class="dlg" aria-labelledby="helpTitle">
     <h2 id="helpTitle">Keyboard shortcuts</h2>
     <div id="helpBody"></div>
     <form method="dialog"><button class="btn accent">Close</button></form>
   </dialog>
 
+  <script src="js/version.js"></script>
   <script src="js/plugins/registry.js"></script>
   <script src="js/synth.js"></script>
   <script src="js/plugins/instruments.js"></script>
@@ -80,7 +87,10 @@
   <script src="js/mixer.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/browser.js"></script>
+  <script src="js/automation.js"></script>
+  <script src="js/midi.js"></script>
   <script src="js/io.js"></script>
   <script src="app.js"></script>
+  <script src="js/desktop.js"></script>
 </body>
 </html>

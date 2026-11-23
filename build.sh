@@ -7,10 +7,11 @@ VER=$(node -p "require('./desktop/package.json').version")
 EV=33.2.1
 ELECTRON_DIR=${ELECTRON_DIR:-$HOME/.cache/beatforge-electron}
 rm -rf dist && mkdir -p dist/stage
+printf "window.BF_VERSION = '%s';\n" "$VER" > js/version.js
 app() { # copy the web app + desktop shell into $1
   mkdir -p "$1"
   cp -r index.html style.css app.js js LICENSE "$1/"
-  cp desktop/main.js desktop/package.json desktop/icon.png "$1/"
+  cp desktop/main.js desktop/preload.js desktop/package.json desktop/icon.png "$1/"
 }
 for plat in win32-x64 linux-x64; do
   zip="$ELECTRON_DIR/electron-v$EV-$plat.zip"
@@ -30,4 +31,5 @@ for plat in win32-x64 linux-x64; do
     tar -C dist/stage -czf "dist/BeatForge-$VER-linux-x64.tar.gz" "BeatForge-$plat"
   fi
 done
-(cd dist && sha256sum BeatForge-* > SHA256SUMS.txt && ls -la)
+node tools/make-update.js
+(cd dist && sha256sum BeatForge-* beatforge-app-* > SHA256SUMS.txt && ls -la)

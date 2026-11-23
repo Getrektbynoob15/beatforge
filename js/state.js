@@ -188,7 +188,23 @@
           .map((f) => ({ id: str(f.id, BF.uid('fx')), plugin: f.plugin, params: BF.plugins.sanitize(f.plugin, f.params), bypass: !!f.bypass })),
       };
     });
-    p.clips = (Array.isArray(raw.clips) ? raw.clips : []).slice(0, 20000).filter((c) => c && (c.kind === 'pattern' ? patIds.has(c.patternId) : p.samples[c.sampleId])).map((c) => ({
+    const autoClips = (Array.isArray(raw.clips) ? raw.clips : []).filter((c) => c && c.kind === 'auto' && c.target && Array.isArray(c.points)).slice(0, 2000).map((c) => ({
+      id: str(c.id, BF.uid('c')),
+      kind: 'auto',
+      track: Math.round(clamp(c.track, 0, BF.TRACKS - 1, 0)),
+      start: clamp(c.start, 0, 4096, 0),
+      len: clamp(c.len, 0.25, 4096, 16),
+      target: {
+        kind: ['ch', 'chp', 'mx', 'fx'].includes(c.target.kind) ? c.target.kind : 'mx',
+        ...(typeof c.target.id === 'string' ? { id: c.target.id } : {}),
+        ...(typeof c.target.field === 'string' ? { field: c.target.field === 'pan' ? 'pan' : 'volume' } : {}),
+        ...(typeof c.target.param === 'string' ? { param: c.target.param } : {}),
+        ...(Number.isFinite(c.target.insert) ? { insert: Math.round(clamp(c.target.insert, 0, BF.INSERTS, 0)) } : {}),
+        ...(typeof c.target.fxId === 'string' ? { fxId: c.target.fxId } : {}),
+      },
+      points: c.points.slice(0, 5000).filter((pt) => pt && Number.isFinite(+pt.t)).map((pt) => ({ t: clamp(pt.t, 0, 4096, 0), v: clamp(pt.v, 0, 1, 0.5) })).sort((a, b) => a.t - b.t),
+    })).filter((c) => c.points.length && BF.auto.describe(c.target, p));
+    p.clips = (Array.isArray(raw.clips) ? raw.clips : []).slice(0, 20000).filter((c) => c && c.kind !== 'auto' && (c.kind === 'pattern' ? patIds.has(c.patternId) : p.samples[c.sampleId])).map((c) => ({
       id: str(c.id, BF.uid('c')),
       kind: c.kind === 'pattern' ? 'pattern' : 'audio',
       track: Math.round(clamp(c.track, 0, BF.TRACKS - 1, 0)),
@@ -202,7 +218,7 @@
         srcBpm: clamp(c.srcBpm, 40, 300, 120),
         gain: clamp(c.gain, 0, 2, 1),
       }),
-    }));
+    })).concat(autoClips);
     return p;
   };
 

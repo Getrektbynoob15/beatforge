@@ -12,7 +12,7 @@
   const TICK_MS = 25;
 
   /** Book one pattern instance that starts at `atBeat`, events in [from, to) only, cut at `cutBeat`. */
-  function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat) {
+  function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false) {
     const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
     for (const ch of p.channels) {
       if (ch.mute) continue;
@@ -22,7 +22,7 @@
           if (!steps[i]) continue;
           const beat = atBeat + i / 4 + (i % 2 ? swing : 0);
           if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
-          BF.audio.note(g, ch, beatTime(beat), 60, 0.8, secPerBeat / 4);
+          BF.audio.note(g, ch, beatTime(beat), 60, 0.8, secPerBeat / 4, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
         }
       }
       const notes = pt.notes[ch.id];
@@ -31,14 +31,14 @@
           if (n.start >= pt.length) continue;
           const beat = atBeat + n.start / 4 + (Math.round(n.start) === n.start && n.start % 2 ? swing : 0);
           if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
-          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, (n.len / 4) * secPerBeat);
+          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, (n.len / 4) * secPerBeat, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
         }
       }
     }
   }
 
   /** Book everything in [from, to). mode 'pattern': current pattern looped from beat 0. 'song': the playlist. */
-  BF.scheduleRange = function (g, p, from, to, beatTime, mode, sources) {
+  BF.scheduleRange = function (g, p, from, to, beatTime, mode, sources, later) {
     const spb = 60 / p.bpm;
     if (mode === 'pattern') {
       const pt = BF.pattern();
@@ -53,14 +53,16 @@
         const end = c.start + c.len;
         if (end <= from || c.start >= to) continue;
         const pt = p.patterns.find((x) => x.id === c.patternId);
-        if (pt) bookPattern(g, p, pt, c.start, from, to, end, beatTime, spb);
-      } else if (c.start >= from - 1e-9 && c.start < to - 1e-9) {
+        if (pt) bookPattern(g, p, pt, c.start, from, to, end, beatTime, spb, true);
+      } else if (c.kind === 'audio' && c.start >= from - 1e-9 && c.start < to - 1e-9) {
         const ins = p.tracks[c.track]?.insert || 0;
         const src = BF.audio.playClip(g.ctx, c, g.inserts[ins].transport, beatTime(c.start), 0, p.bpm);
         if (src && sources) sources.push(src);
       }
     }
+    BF.auto.schedule(g, p, from, to, beatTime, later || liveLater(g.ctx));
   };
+  const liveLater = (ctx) => (t, fn) => setTimeout(fn, Math.max(0, (t - ctx.currentTime) * 1000));
 
   BF.songEndBeat = function (p = BF.project) {
     let end = p.songBars * 4;
@@ -175,6 +177,8 @@
     });
     T.sources.forEach((s) => { try { s.stop(now + 0.02); } catch { /* ended */ } });
     T.sources = [];
+    // drop booked automation ramps, go back to the static mixer/channel values
+    setTimeout(() => BF.audio.sync(BF.audio.graph, BF.project), 20);
     BF.emit('transport');
   };
 
@@ -198,7 +202,18 @@
     const ctx = new OfflineAudioContext(2, total, rate);
     const g = BF.audio.buildGraph(ctx);
     BF.audio.sync(g, p);
-    BF.scheduleRange(g, p, 0, end, (b) => (b * 60) / p.bpm, mode, null);
+    const events = new Map(); // render-quantum frame -> [fn]
+    const later = (t, fn) => {
+      const q = Math.round((t * rate) / 128) * 128;
+      if (!events.has(q)) events.set(q, []);
+      events.get(q).push(fn);
+    };
+    BF.scheduleRange(g, p, 0, end, (b) => (b * 60) / p.bpm, mode, null, later);
+    for (const [q, fns] of [...events.entries()].sort((a, b) => a[0] - b[0])) {
+      if (q <= 0) { fns.forEach((f) => f()); continue; }
+      if (q >= total) continue;
+      ctx.suspend(q / rate).then(() => { fns.forEach((f) => f()); ctx.resume(); });
+    }
     return ctx.startRendering();
   };
 })();

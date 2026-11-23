@@ -284,22 +284,15 @@
     }
   }
 
-  // ---------- typing keyboard ----------
-  const LOWER = 'zsxdcvgbhnjm,l.;/';
-  const UPPER = 'q2w3er5t6y7ui9o0p';
-  const held = new Set();
-  function typingKey(e, isDown) {
+  // ---------- typing keyboard (notes go through BF.live, so they have a real note-off and can be recorded) ----------
+  function typingKey(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
-    const c = e.key.toLowerCase();
-    let i = LOWER.indexOf(c), base = 60;
-    if (i < 0) { i = UPPER.indexOf(c); base = 72; }
-    if (i < 0) return false;
+    const note = BF.live.typingNote(e);
+    if (note === null) return false;
     e.preventDefault(); e.stopPropagation();
-    const note = base + i;
-    if (isDown && !held.has(note) && ch()) { held.add(note); BF.audio.previewNote(ch(), note, 0.8, 0.5); }
+    if (!e.repeat) BF.live.on('key', note, 0.8);
     return true;
   }
-  window.addEventListener('keyup', (e) => { const c = e.key.toLowerCase(); const i = Math.max(LOWER.indexOf(c), -1); held.delete(60 + i); const j = UPPER.indexOf(c); held.delete(72 + j); });
   PR.typingKey = typingKey;
 
   function wheel(e) {
