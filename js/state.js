@@ -15,7 +15,7 @@
 
   const HISTORY_LIMIT = 100;
   BF.TRACKS = 16;
-  BF.INSERTS = 16;
+  BF.INSERTS = 32;
   BF.PATTERN_COLORS = ['#2fd4ff', '#ff7a59', '#9b7bff', '#3ddc84', '#ffcc33', '#ff5c8a', '#4dd0e1', '#c0ca33'];
 
   let counter = 0;
@@ -65,6 +65,7 @@
       name: 'Untitled',
       bpm: 130,
       swing: 0,
+      masterPitch: 0,
       songBars: 4,
       channels,
       patterns: [p1],
@@ -130,6 +131,7 @@
     p.name = str(raw.name, 'Untitled', 120);
     p.bpm = Math.round(clamp(raw.bpm, 40, 300, 130) * 100) / 100;
     p.swing = clamp(raw.swing, 0, 1, 0);
+    p.masterPitch = Math.round(clamp(raw.masterPitch, -1200, 1200, 0)); // cents, like a master pitch knob
     p.songBars = Math.round(clamp(raw.songBars, 1, 512, 16));
     p.markers = (Array.isArray(raw.markers) ? raw.markers : []).slice(0, 200).filter((m) => m && Number.isFinite(+m.beat))
       .map((m) => ({ beat: clamp(m.beat, 0, 4096, 0), name: str(m.name, 'Marker', 40) })).sort((a, b) => a.beat - b.beat);
@@ -153,6 +155,8 @@
       pan: clamp(c.pan, -1, 1, 0),
       pitch: Math.round(clamp(c.pitch, -24, 24, 0)),
       mute: !!c.mute,
+      ...(typeof c.group === 'string' && c.group.trim() ? { group: str(c.group, '', 20) } : {}),
+      ...(c.zip ? { zip: true } : {}),
       insert: Math.round(clamp(c.insert, 0, BF.INSERTS, 0)),
     }));
     const chIds = new Set(p.channels.map((c) => c.id));
@@ -170,6 +174,11 @@
           key: Math.round(clamp(n.key, 0, 127, 60)),
           vel: clamp(n.vel, 0, 1, 0.8),
           ...(n.mute ? { mute: true } : {}),
+          ...(n.slide ? { slide: true } : {}),
+          ...(n.porta ? { porta: true } : {}),
+          ...(Number.isFinite(+n.pan) && +n.pan !== 0 ? { pan: clamp(n.pan, -1, 1, 0) } : {}),
+          ...(Number.isFinite(+n.fine) && +n.fine !== 0 ? { fine: Math.round(clamp(n.fine, -100, 100, 0)) } : {}),
+          ...(Number.isInteger(n.color) && n.color > 0 && n.color < 16 ? { color: n.color } : {}),
         }));
       }
       return { id: str(pt.id, BF.uid('p')), name: str(pt.name, `Pattern ${i + 1}`), color: /^#[0-9a-f]{6}$/i.test(pt.color) ? pt.color : BF.PATTERN_COLORS[i % 8], length, steps, notes };

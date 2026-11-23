@@ -6,10 +6,12 @@ No account, no internet, no tracking.
 
 ## Get it
 
-- **Windows:** download `BeatForge-x.y.z-win-x64.zip` from [Releases](../../releases), unzip it, run `BeatForge.exe`.
+- **Windows:** download `BeatForge-x.y.z-Setup.exe` from [Releases](../../releases) and run it. It installs for your account
+  (no admin rights), with Start menu and desktop shortcuts and an uninstaller in Windows Settings → Apps.
   Windows SmartScreen may warn because the app is not code-signed: click *More info* → *Run anyway*.
-- **Linux:** download `BeatForge-x.y.z-linux-x64.tar.gz`, then
-  `tar xzf BeatForge-*-linux-x64.tar.gz && ./BeatForge-linux-x64/beatforge`
+  (A portable `win-x64.zip` is there too.)
+- **Linux (Ubuntu, Mint, Debian…):** download `BeatForge-x.y.z-linux-amd64.deb` and double-click it to install.
+  Other distros: `tar xzf BeatForge-*-linux-x64.tar.gz && ./BeatForge-linux-x64/beatforge`
 - **Mac:** download `BeatForge-x.y.z-mac-arm64.zip` (Apple Silicon: M1/M2/M3/M4) or `-mac-x64.zip` (older Intel Macs),
   unzip it and drag `BeatForge.app` into Applications. The app is not signed by Apple (that needs a paid developer account),
   so macOS will say it "is damaged" or "cannot be checked". Open Terminal once and run:
@@ -19,6 +21,15 @@ No account, no internet, no tracking.
   ```
   Then open it normally. (The first command removes the "downloaded from the internet" flag, the second gives it a local signature.)
 - **Browser:** download or clone this repo and open `index.html` (Chrome, Edge or Firefox).
+
+## New in 2.6
+
+- Piano roll: slide notes (S), portamento (O), per-note pan and fine pitch with an event lane (F), note properties
+  (double-click a note), note colours (Alt+C), flam, ghost notes and more classic shortcuts.
+- Audio editor: double-click an audio clip (or "Edit audio…") to trim, cut, silence, reverse, fade, normalize.
+- Templates: File → New from template (Trap, House, Lo-fi, Rock starters) and File → Save as template.
+- Top bar: master volume and master pitch, CPU meter, step edit (Ctrl+E), recording precount (Ctrl+P).
+- Mixer: 32 inserts, move inserts with Alt+←/→. Channel rack: groups (Alt+G), zip (Alt+Z).
 
 ## How to use it
 
@@ -40,7 +51,7 @@ arrange them in the **playlist**, and mix in the **mixer**. Everything opens as 
 - **Audio clips:** select one to get the clip panel: *Stretch* (tempo changes, pitch stays), *Resample* (pitch follows speed),
   *Fit to tempo* (follows the project BPM; *Guess BPM* works out the loop's tempo), speed, pitch and gain.
   **Shift + drag a clip's edge** to stretch it to any length.
-- **Mixer (F9):** Master + 16 inserts with meters, faders, pan, mute and solo. Click a strip to see its effect slots
+- **Mixer (F9):** Master + 32 inserts with meters, faders, pan, mute and solo. Click a strip to see its effect slots
   (up to 10) and its routing: to Master and/or sends to other inserts (feedback loops are blocked).
   Effects: Forge EQ, Forge Filter, Echo Delay, Room Reverb, Compressor, Drive, Chorus, Limiter, Utility, Sidechain Ducker,
   Phaser, Flanger, Stereo Width, Volume Shaper.

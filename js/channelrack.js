@@ -70,7 +70,7 @@
       { label: 'Open instrument', action: () => BF.editor.openChannel(ch.id) },
       { label: 'Piano roll', hint: 'F7', action: () => { BF.setView((p) => { p.selectedChannel = ch.id; }); BF.win.toggle('piano', true); } },
       '-',
-      { label: 'Rename…', action: () => { const n = BF.ui.prompt('Channel name', ch.name); if (n) BF.commit((p) => { find(p, ch.id).name = n; }); } },
+      { label: 'Rename…', action: async () => { const n = await BF.ui.prompt('Channel name', ch.name); if (n) BF.commit((p) => { find(p, ch.id).name = n; }); } },
       { label: 'Clone', action: () => BF.commit((p) => {
         const c = JSON.parse(JSON.stringify(find(p, ch.id)));
         c.id = BF.uid('ch'); c.name = `${c.name} 2`;
@@ -115,7 +115,16 @@
     label.className = 'rack-pat';
     label.style.setProperty('--c', pt.color);
     label.textContent = pt.name;
-    head.append(label, lenSel, swing.el);
+    // channel groups (Alt+G puts the selected channel in a group; Page Up / Down switch groups)
+    const groups = [...new Set(p.channels.map((c) => c.group).filter(Boolean))];
+    const gsel = document.createElement('select');
+    gsel.setAttribute('aria-label', 'Channel group filter');
+    gsel.title = 'Show one channel group (Alt+G: group the selected channel · Page Up / Down: switch group)';
+    gsel.add(new Option('All channels', ''));
+    groups.forEach((g2) => gsel.add(new Option(g2, g2)));
+    gsel.value = groups.includes(C.group) ? C.group : '';
+    gsel.addEventListener('change', () => { C.group = gsel.value; C.render(); });
+    head.append(label, lenSel, swing.el, gsel);
   }
 
   function row(ch) {
@@ -237,7 +246,8 @@
     renderHead();
     const focusedStep = document.activeElement?.classList.contains('step') ? [document.activeElement.closest('.rack-row')?.dataset.id, document.activeElement.dataset.i] : null;
     rowsEl.textContent = '';
-    BF.project.channels.forEach((ch) => rowsEl.append(row(ch)));
+    const grp = C.group && BF.project.channels.some((c) => c.group === C.group) ? C.group : (C.group = '');
+    BF.project.channels.filter((ch) => !grp || ch.group === grp).forEach((ch) => { const r = row(ch); if (ch.zip) r.classList.add('zipped'); rowsEl.append(r); });
     if (!BF.project.channels.length) {
       const e = document.createElement('p'); e.className = 'empty'; e.textContent = 'No channels. Add one with + Add channel, or drop audio files here.'; rowsEl.append(e);
     }

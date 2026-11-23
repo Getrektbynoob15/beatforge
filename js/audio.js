@@ -172,9 +172,11 @@
   };
 
   /** Book one note of a channel's instrument into graph `g`. */
-  A.note = function (g, ch, time, key, vel, dur, preview = false, params = null) {
+  A.note = function (g, ch, time, key, vel, dur, preview = false, params = null, extras = null) {
     const def = BF.plugins.get(ch.plugin);
     if (!def || def.kind !== 'instrument') return;
+    const mp = BF.project.masterPitch || 0;
+    if (mp && !extras) extras = {};
     if (def.ext) return BF.community.note(g, ch, time, key + ch.pitch, vel, dur, preview ? 'preview' : 'main', params);
     let out;
     if (preview) {
@@ -187,8 +189,44 @@
     } else {
       out = chanStrip(g, ch).gain;
     }
-    def.play(g.ctx, out, params || ch.params, time, key + ch.pitch, vel, dur);
+    if (!extras) { def.play(g.ctx, out, params || ch.params, time, key + ch.pitch, vel, dur); return; }
+    playWithExtras(g.ctx, def, out, params || ch.params, time, key + ch.pitch, vel, dur, extras, mp);
   };
+
+  /** Per-note pan / fine pitch / portamento / slide bends / master pitch. Pitch moves go through every oscillator's and
+   * sample player's `detune` (cents), driven by one ConstantSource per note, so every instrument supports them. */
+  function playWithExtras(ctx, def, out, params, time, key, vel, dur, x, masterPitch) {
+    let dest = out, pan = null;
+    if (x.pan) { pan = ctx.createStereoPanner(); pan.pan.value = x.pan; pan.connect(out); dest = pan; }
+    const base = (x.fine || 0) + masterPitch;
+    let det = null;
+    if (base || x.glideFrom || x.bends) {
+      det = ctx.createConstantSource();
+      const o = det.offset;
+      o.setValueAtTime(base + (x.glideFrom || 0), time);
+      if (x.glideFrom) o.linearRampToValueAtTime(base, time + Math.max(0.01, x.glideTime || 0.05));
+      let last = base;
+      (x.bends || []).forEach((b) => {
+        o.setValueAtTime(last, b.t);
+        last = base + b.cents;
+        o.linearRampToValueAtTime(last, b.t + Math.max(0.005, b.dur));
+      });
+      det.start(time);
+      det.stop(time + dur + 12);
+    }
+    const made = [];
+    const origOsc = ctx.createOscillator, origBuf = ctx.createBufferSource;
+    if (det) {
+      ctx.createOscillator = function () { const n = origOsc.call(ctx); made.push(n); return n; };
+      ctx.createBufferSource = function () { const n = origBuf.call(ctx); made.push(n); return n; };
+    }
+    try { def.play(ctx, dest, params, time, key, vel, dur); } finally {
+      if (det) { delete ctx.createOscillator; delete ctx.createBufferSource; }
+    }
+    // pitch the sound sources, not slow LFOs (vibrato etc.)
+    made.forEach((n) => { if (!(n instanceof OscillatorNode) || n.frequency.value >= 25) det.connect(n.detune); });
+    if (pan && !(ctx instanceof OfflineAudioContext)) setTimeout(() => { try { pan.disconnect(); } catch { /* */ } }, (dur + 12) * 1000);
+  }
 
   A.previewNote = function (ch, key, vel = 0.8, dur = 0.35) {
     const ctx = A.ensure();

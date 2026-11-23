@@ -86,6 +86,13 @@
         if (id) { BF.commit((p) => { locate(p).params.sample = id; }); E.render(); }
       }, false));
       top.append(load);
+      if (cur.obj.params.sample) {
+        const ed = document.createElement('button');
+        ed.className = 'btn small';
+        ed.textContent = '✎ Edit audio…';
+        ed.addEventListener('click', () => BF.sampleEditor.open(cur.obj.params.sample));
+        top.append(ed);
+      }
     }
     if (def.kind === 'instrument') {
       const test = document.createElement('button');

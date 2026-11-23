@@ -10,6 +10,7 @@
       ['Space', 'Start / stop'], ['Ctrl+Space', 'Start / pause (keeps the position)'], ['L', 'Switch Pattern / Song mode'],
       ['R', 'Record on/off'], ['Ctrl+M', 'Metronome on/off'], ['Ctrl+H', 'Stop all sound (panic)'],
       ['Numpad + / −', 'Next / previous pattern'], ['Numpad 1–9', 'Pattern 1–9'], ['F4 · Ctrl+F4', 'Next empty pattern (and name it) · without naming'],
+      ['Ctrl+E', 'Step edit on/off'], ['Ctrl+P', 'Recording precount on/off'],
       ['Numpad * / /', 'Next / previous bar (song)'], ['Alt+T', 'Add a time marker'], ['Alt+Numpad * / /', 'Jump to the next / previous marker'],
     ]],
     ['Windows', [
@@ -28,11 +29,11 @@
     ]],
     ['Channel rack', [
       ['↑ ↓', 'Select channel'], ['Alt+↑ ↓', 'Move channel up / down'], ['1–9, 0', 'Mute channel 1–10'], ['Ctrl+1–9, 0', 'Solo channel 1–10'],
-      ['Alt+C', 'Clone channel'], ['Alt+Del', 'Delete channel'], ['Ctrl+C · X · V', 'Copy · cut · paste the channel\'s steps'],
+      ['Alt+C', 'Clone channel'], ['Alt+G', 'Put the channel in a group'], ['Page Up / Down', 'Switch channel group'], ['Alt+Z · Alt+U', 'Zip · unzip channel'], ['Alt+Del', 'Delete channel'], ['Ctrl+C · X · V', 'Copy · cut · paste the channel\'s steps'],
       ['Ctrl+Shift+← →', 'Shift steps left / right'], ['Ctrl+L', 'Route to a free mixer insert'], ['Ctrl+Enter', 'Go to the playlist'],
     ]],
     ['Mixer', [
-      ['S', 'Solo the selected insert'], ['Ctrl+L', 'Route the selected channel to this insert'], ['Alt+L', 'Select the channel routed here'], ['Alt+R', 'Export stems'], ['F2', 'Rename insert'],
+      ['S', 'Solo the selected insert'], ['Alt+← →', 'Move the insert left / right'], ['Ctrl+L', 'Route the selected channel to this insert'], ['Alt+L', 'Select the channel routed here'], ['Alt+R', 'Export stems'], ['F2', 'Rename insert'],
     ]],
     ['Piano roll', [
       ['P · B · D · T · C · E', 'Draw · Paint · Delete · Mute · Slice · Select'], ['Right-click', 'Delete'], ['Del', 'Delete selected'],
@@ -41,6 +42,8 @@
       ['← → · Alt+← →', 'Move by the snap · nudge'], ['Ctrl+Q · Alt+Q', 'Quick quantize · quantize'], ['Ctrl+L', 'Quick legato'],
       ['Alt+A · Alt+S · Alt+R · Alt+F', 'Arpeggiate · strum · randomize · flam'], ['Alt+U / Ctrl+U · Alt+G / Ctrl+G · Alt+Y', 'Chop · glue · flip'],
       ['Alt+M · Alt+Shift+M', 'Mute · unmute selected notes'], ['Shift+D', 'Discard note lengths'], ['Alt+V', 'Ghost notes on/off'],
+      ['S · O', 'Slide notes · portamento (for new notes, and the selected ones)'], ['F · Shift+F', 'Next / previous event lane (velocity, pan, fine pitch)'],
+      ['Double-click a note', 'Note properties'], ['Alt+C · Shift+C', 'Colour selected notes · select by colour'],
       ['G · K', 'Channel above · below'], ['H · J', 'Channel above · below with notes'], ['Shift+4', 'Zoom to the whole pattern'],
     ]],
     ['Playlist', [
@@ -62,13 +65,13 @@
     else if (BF.undo()) lastToggle = 'undo';
   }
 
-  function rename() {
+  async function rename() {
     const W = BF.win, p = BF.project;
     if (W.focused === 'mixer') {
-      const i = BF.mixer.selected, n = BF.ui.prompt('Insert name', p.mixer[i].name);
+      const i = BF.mixer.selected, n = await BF.ui.prompt('Insert name', p.mixer[i].name);
       if (n) BF.commit((q) => { q.mixer[i].name = n; });
     } else if (W.focused === 'rack' && BF.channel()) {
-      const ch = BF.channel(), n = BF.ui.prompt('Channel name', ch.name);
+      const ch = BF.channel(), n = await BF.ui.prompt('Channel name', ch.name);
       if (n) BF.commit((q) => { q.channels.find((c) => c.id === ch.id).name = n; });
     } else BF.patterns.rename(p.currentPattern);
   }
@@ -126,6 +129,22 @@
     }
     if (mod && (k === 'enter')) { BF.win.toggle('playlist', true); return true; }
     if (mod) return false;
+    if (e.altKey && k === 'g' && sel) { // group the selected channel (empty name = no group)
+      BF.ui.prompt('Channel group (empty = none)', sel.group || 'Drums').then((n) => {
+        if (n === null) return;
+        BF.commit((q) => { const c = q.channels.find((x) => x.id === sel.id); if (!c) return; if (n) c.group = n.slice(0, 20); else delete c.group; });
+      });
+      return true;
+    }
+    if (e.altKey && (k === 'z' || k === 'u') && sel) { BF.commit((q) => { if (k === 'z') q.channels[i].zip = true; else delete q.channels[i].zip; }); return true; }
+    if (k === 'pageup' || k === 'pagedown') { // next / previous channel group
+      const gs = ['', ...new Set(p.channels.map((c) => c.group).filter(Boolean))];
+      const at = gs.indexOf(BF.rack.group || '');
+      BF.rack.group = gs[(at + (k === 'pageup' ? 1 : gs.length - 1)) % gs.length];
+      BF.rack.render();
+      BF.ui.toast(BF.rack.group ? `Group: ${BF.rack.group}` : 'All channels');
+      return true;
+    }
     if (e.altKey && k === 'c' && sel) { // clone channel
       BF.commit((q) => {
         const c = JSON.parse(JSON.stringify(q.channels[i]));
@@ -172,14 +191,37 @@
       return true;
     }
     if (e.altKey && !mod && k === 'r') { BF.io.exportStems(); return true; }
+    if (e.altKey && !mod && (k === 'arrowleft' || k === 'arrowright') && i > 0) { // move the insert left / right
+      const j = i + (k === 'arrowleft' ? -1 : 1);
+      if (j < 1 || j > BF.INSERTS) return true;
+      swapInserts(i, j);
+      BF.mixer.selected = j;
+      return true;
+    }
     return false;
   }
 
+  /** Swap mixer inserts a and b, and everything that points at them (channels, tracks, sends, sidechains, automation). */
+  function swapInserts(a, b) {
+    const sw = (x) => (x === a ? b : x === b ? a : x);
+    BF.commit((q) => {
+      q.channels.forEach((c) => { c.insert = sw(c.insert); });
+      q.tracks.forEach((t) => { t.insert = sw(t.insert || 0); });
+      q.mixer.forEach((m) => {
+        (m.route?.sends || []).forEach((s) => { s.to = sw(s.to); });
+        m.fx.forEach((f) => { if (f.plugin === 'ducker' && f.params.source !== '0') f.params.source = String(sw(+f.params.source)); });
+      });
+      q.clips.forEach((c) => { if (c.kind === 'auto' && Number.isFinite(c.target.insert)) c.target.insert = sw(c.target.insert); });
+      [q.mixer[a], q.mixer[b]] = [q.mixer[b], q.mixer[a]];
+    });
+  }
+  K.swapInserts = swapInserts;
+
   // ---------- time markers (Alt+T adds one at the song position; Alt+* / Alt+/ jump) ----------
-  function addMarker() {
+  async function addMarker() {
     const T = BF.transport;
     const at = Math.round((T.playing ? T.position() : T.startBeat || 0) * 4) / 4;
-    const name = BF.ui.prompt('Marker name', `Marker ${(BF.project.markers || []).length + 1}`);
+    const name = await BF.ui.prompt('Marker name', `Marker ${(BF.project.markers || []).length + 1}`);
     if (!name) return;
     BF.commit((q) => { q.markers = (q.markers || []).filter((m) => Math.abs(m.beat - at) > 0.01).concat({ beat: at, name: name.slice(0, 40) }).sort((a, b) => a.beat - b.beat); });
   }
@@ -257,6 +299,8 @@
     if (typing) return;
     if (BF.piano.typing && !mod && !e.altKey && BF.piano.typingKey(e, true)) return;
     if (mod && k === 't') { stop(); document.querySelector('.piano .pr-tools button[title*="computer keyboard"]')?.click(); return; }
+    if (mod && !e.shiftKey && k === 'e') { stop(); BF.rec.stepEdit = !BF.rec.stepEdit; BF.ui.toast(BF.rec.stepEdit ? 'Step edit on: notes you play (typing or MIDI keyboard, while stopped) are written at the yellow cursor in the piano roll and the cursor moves on. Click the piano roll ruler to move it.' : 'Step edit off'); BF.piano.draw(); BF.emit('transport'); return; }
+    if (mod && !e.shiftKey && k === 'p') { stop(); BF.rec.precount = !BF.rec.precount; BF.ui.toast(`Precount ${BF.rec.precount ? 'on: one bar of clicks before recording' : 'off'}`); BF.emit('transport'); return; }
     if (mod && k === 'm') { stop(); BF.recorder.metronome = !BF.recorder.metronome; BF.ui.toast(`Metronome ${BF.recorder.metronome ? 'on' : 'off'}`); BF.emit('transport'); return; }
     if (mod && e.altKey && k === 'z') { stop(); BF.undo(); lastToggle = null; return; }
     if (mod && e.shiftKey && k === 'z') { stop(); BF.redo(); lastToggle = null; return; }

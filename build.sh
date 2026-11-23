@@ -24,6 +24,12 @@ for plat in win32-x64 linux-x64; do
     mv "$out/electron.exe" "$out/BeatForge.exe"
     cp README.md "$out/README.txt"
     (cd dist/stage && zip -qr9 "../BeatForge-$VER-win-x64.zip" "BeatForge-$plat")
+    # Setup.exe (NSIS, used from ~/.cache/beatforge-nsis: the Ubuntu nsis packages unpacked there, no install needed)
+    NSIS=${NSIS_DIR:-$HOME/.cache/beatforge-nsis/root}
+    if [ -x "$NSIS/usr/bin/makensis" ]; then
+      NSISDIR="$NSIS/usr/share/nsis" "$NSIS/usr/bin/makensis" -V2 -DVERSION="$VER" -DSRCDIR="$PWD/$out" \
+        -DOUTFILE="$PWD/dist/BeatForge-$VER-Setup.exe" -DICON="$PWD/desktop/icon.ico" desktop/installer.nsi
+    else echo "NOTE: no NSIS found, skipping Setup.exe"; fi
   else
     mv "$out/electron" "$out/beatforge"
     cp desktop/icon.png "$out/beatforge.png"

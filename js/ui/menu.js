@@ -58,8 +58,36 @@
     BF.ui.menu(r.left, r.bottom + 2, items);
   };
 
-  BF.ui.prompt = function (label, value) {
-    const v = window.prompt(label, value);
-    return v === null ? null : v.trim().slice(0, 60);
+  /** Ask for a line of text in BeatForge's own dialog (the desktop app has no window.prompt).
+   * Resolves to the trimmed text, or null when cancelled. */
+  BF.ui.prompt = function (label, value = '') {
+    return new Promise((resolve) => {
+      const d = document.createElement('dialog');
+      d.className = 'dlg prompt-dlg';
+      const form = document.createElement('form');
+      form.method = 'dialog';
+      const l = document.createElement('label');
+      l.className = 'prompt-label';
+      l.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = value ?? '';
+      inp.maxLength = 120;
+      inp.className = 'prompt-input';
+      l.append(inp);
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn'; cancel.textContent = 'Cancel';
+      const ok = document.createElement('button'); ok.type = 'submit'; ok.className = 'btn accent'; ok.textContent = 'OK';
+      const actions = document.createElement('div'); actions.className = 'dlg-actions'; actions.append(cancel, ok);
+      form.append(l, actions);
+      d.append(form);
+      document.body.append(d);
+      let result = null;
+      form.addEventListener('submit', () => { result = inp.value.trim().slice(0, 60); });
+      cancel.addEventListener('click', () => d.close());
+      d.addEventListener('close', () => { d.remove(); resolve(result); });
+      d.showModal();
+      inp.focus();
+      inp.select();
+    });
   };
 })();

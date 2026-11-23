@@ -12,6 +12,25 @@
   const TICK_MS = 25;
 
   /** Book one pattern instance that starts at `atBeat`, events in [from, to) only, cut at `cutBeat`. */
+  /** Per-note extras: pan, fine pitch, portamento (glide from the previous note) and slide notes (bend this note). */
+  function noteExtras(n, notes, slides, atBeat, beatTime, secPerBeat, dur) {
+    const x = {};
+    if (n.pan) x.pan = n.pan;
+    if (n.fine) x.fine = n.fine;
+    if (n.porta) {
+      let prev = null;
+      for (const o of notes) if (!o.slide && !o.mute && o !== n && o.start < n.start - 1e-6 && (!prev || o.start > prev.start)) prev = o;
+      if (prev && prev.key !== n.key) { x.glideFrom = (prev.key - n.key) * 100; x.glideTime = Math.min(dur, secPerBeat / 3); }
+    }
+    for (const s of slides) {
+      if (s.start > n.start + 1e-6 && s.start < n.start + n.len - 1e-6) {
+        (x.bends = x.bends || []).push({ t: beatTime(atBeat + s.start / 4), cents: (s.key - n.key) * 100 + (s.fine || 0), dur: (s.len / 4) * secPerBeat });
+      }
+    }
+    if (x.bends) x.bends.sort((a, b) => a.t - b.t);
+    return Object.keys(x).length ? x : null;
+  }
+
   function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false) {
     const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
     for (const ch of p.channels) {
@@ -27,11 +46,13 @@
       }
       const notes = pt.notes[ch.id];
       if (notes) {
+        const slides = notes.filter((n) => n.slide && !n.mute);
         for (const n of notes) {
-          if (n.start >= pt.length || n.mute) continue;
+          if (n.start >= pt.length || n.mute || n.slide) continue;
           const beat = atBeat + n.start / 4 + (Math.round(n.start) === n.start && n.start % 2 ? swing : 0);
           if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
-          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, (n.len / 4) * secPerBeat, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
+          const dur = (n.len / 4) * secPerBeat;
+          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, dur, false, auto ? BF.auto.noteParams(p, ch, beat) : null, noteExtras(n, notes, slides, atBeat, beatTime, secPerBeat, dur));
         }
       }
     }
@@ -150,6 +171,12 @@
     T.bpm = BF.project.bpm;
     T.prev = null;
     T.anchorTime = ctx.currentTime + 0.05;
+    // precount (Ctrl+P): one bar of clicks before recording starts
+    if (BF.rec.armed && BF.rec.precount) {
+      const spb = 60 / BF.project.bpm;
+      for (let b = 0; b < 4; b++) BF.recorder.click(g, T.anchorTime + b * spb, b === 0);
+      T.anchorTime += 4 * spb;
+    }
     let start = T.mode === 'song' ? T.startBeat : 0;
     if (T.mode === 'song' && T.loop && (start < T.loop.start || start >= T.loop.end)) start = T.loop.start;
     if (start >= loopEnd()) start = T.startBeat = 0;

@@ -33,6 +33,7 @@
   W.create({ id: 'editor', title: 'Plugin', body: BF.editor.build(), rect: { x: 0.5, y: 0.06, w: 0.46, h: 0.56 }, open: false, onShow: () => BF.editor.render() });
   W.create({ id: 'picker', title: 'Plugin picker', body: BF.keys.buildPicker(), rect: { x: 0.25, y: 0.1, w: 0.5, h: 0.6 }, open: false, hotkey: 'F8' });
   W.create({ id: 'store', title: 'Plugin store', body: BF.community.build(), rect: { x: 0.15, y: 0.06, w: 0.7, h: 0.8 }, open: false, onShow: () => BF.community.render() });
+  W.create({ id: 'sampleed', title: 'Audio editor', body: BF.sampleEditor.build(), rect: { x: 0.1, y: 0.2, w: 0.8, h: 0.5 }, open: false, onShow: () => BF.sampleEditor.draw() });
   W.create({ id: 'auto', title: 'Automation', body: BF.auto.build(), rect: { x: 0.1, y: 0.5, w: 0.8, h: 0.42 }, open: false, onShow: () => BF.auto.render() });
   W.front('rack');
   const wsToggle = W.toggle;
@@ -103,6 +104,8 @@
     $('playBtn').setAttribute('aria-pressed', String(T.playing));
     $('recBtn').setAttribute('aria-pressed', String(BF.rec.armed));
     $('metBtn').setAttribute('aria-pressed', String(BF.recorder.metronome));
+    $('stepBtn').setAttribute('aria-pressed', String(!!BF.rec.stepEdit));
+    $('preBtn').setAttribute('aria-pressed', String(!!BF.rec.precount));
     [['modePattern', 'pattern'], ['modeSong', 'song']].forEach(([id, m]) => {
       $(id).classList.toggle('on', T.mode === m);
       $(id).setAttribute('aria-checked', String(T.mode === m));
@@ -116,6 +119,29 @@
   $('playBtn').addEventListener('click', () => BF.transport.toggle());
   $('recBtn').addEventListener('click', () => toggleRec());
   $('metBtn').addEventListener('click', () => { BF.recorder.metronome = !BF.recorder.metronome; BF.emit('transport'); });
+  $('stepBtn').addEventListener('click', () => { BF.rec.stepEdit = !BF.rec.stepEdit; BF.piano.draw(); BF.emit('transport'); });
+  $('preBtn').addEventListener('click', () => { BF.rec.precount = !BF.rec.precount; BF.emit('transport'); });
+
+  // master volume (= master insert fader) and master pitch (cents), like the knobs left of a DAW's transport
+  const mvol = BF.ui.knob({ param: { name: 'Master volume', min: 0, max: 1.25, default: 0.8, fmt: (v) => `${Math.round(v * 100)}%` }, value: BF.project.mixer[0].volume, compact: true,
+    onInput: (v) => BF.commit((q) => { q.mixer[0].volume = v; }, 'master-vol', 'mix') });
+  const mpitch = BF.ui.knob({ param: { name: 'Master pitch', min: -1200, max: 1200, default: 0, step: 1, fmt: (v) => `${v > 0 ? '+' : ''}${Math.round(v)} cents` }, value: BF.project.masterPitch || 0, compact: true,
+    onInput: (v) => BF.commit((q) => { q.masterPitch = Math.round(v); }, 'master-pitch', 'param') });
+  $('masterKnobs').append(mvol.el, mpitch.el);
+  BF.onChange(() => { mvol.set(BF.project.mixer[0].volume); mpitch.set(BF.project.masterPitch || 0); });
+
+  // CPU meter: how late the page's timers run (busy main thread = late timers = possible audio glitches)
+  (() => {
+    let last = performance.now(), load = 0;
+    setInterval(() => {
+      const now = performance.now();
+      const late = Math.max(0, now - last - 250);
+      last = now;
+      load = load * 0.7 + Math.min(1, late / 120) * 0.3;
+      const f = $('cpuFill');
+      if (f) { f.style.width = `${Math.round(Math.max(0.04, load) * 100)}%`; f.classList.toggle('hot', load > 0.6); }
+    }, 250);
+  })();
   function toggleRec() {
     BF.rec.armed = !BF.rec.armed;
     if (BF.rec.armed && !BF.piano.typing && !BF.live.devices.length) BF.ui.toast('Record is on. Turn on the typing keyboard (piano roll) or plug in a MIDI keyboard, press Space and play.');
@@ -153,10 +179,11 @@
 
   $('menuFile').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
     { label: 'New', hint: 'Ctrl+N', action: newProject },
-    { label: 'New from demo', action: () => { if (!BF.dirty || confirm('Unsaved changes are lost. Continue?')) { BF.transport.stop(); BF.replaceProject(BF.newProject(true)); } } },
+    { label: 'New from template…', action: () => BF.templates.open() },
     { label: 'Open… (.bfp project or .mid)', hint: 'Ctrl+O', action: openFile },
     { label: 'Save', hint: 'Ctrl+S', action: () => BF.io.save() },
     { label: 'Save as…', hint: 'Ctrl+Shift+S', action: () => BF.io.saveAs() },
+    { label: 'Save as template…', action: () => BF.templates.saveCurrent() },
     '-',
     { label: 'Import audio to playlist…', action: () => BF.io.pickFiles((f) => BF.io.importToPlaylist(f, 0, 0)) },
     { label: 'Import audio as Sampler channels…', action: () => BF.io.pickFiles((f) => BF.io.importToRack(f)) },
@@ -174,7 +201,7 @@
     { label: 'Undo', hint: 'Ctrl+Z', disabled: !BF.canUndo(), action: () => BF.undo() },
     { label: 'Redo', hint: 'Ctrl+Shift+Z', disabled: !BF.canRedo(), action: () => BF.redo() },
     '-',
-    { label: 'Rename project…', action: () => { const n = BF.ui.prompt('Project name', BF.project.name); if (n) BF.commit((p) => { p.name = n; }); } },
+    { label: 'Rename project…', action: async () => { const n = await BF.ui.prompt('Project name', BF.project.name); if (n) BF.commit((p) => { p.name = n; }); } },
     { label: 'Settings…', hint: 'F10', action: () => BF.keys.settings() },
     { label: 'Project info…', hint: 'F11', action: () => BF.keys.projectInfo() },
     { label: 'Metronome', hint: 'Ctrl+M', checked: BF.recorder.metronome, action: () => { BF.recorder.metronome = !BF.recorder.metronome; BF.emit('transport'); } },
@@ -182,7 +209,7 @@
     { label: 'Connect MIDI keyboard', action: () => BF.live.start(true) },
     { label: 'Typing keyboard to piano', checked: BF.piano.typing, action: () => document.querySelector('.piano .pr-tools button[aria-pressed][title*="computer keyboard"]')?.click() },
     '-',
-    { label: 'Song length (bars)…', action: () => { const n = BF.ui.prompt('Minimum song length in bars', String(BF.project.songBars)); if (n) BF.commit((p) => { p.songBars = Math.round(BF.clamp(n, 1, 512, p.songBars)); }); } },
+    { label: 'Song length (bars)…', action: async () => { const n = await BF.ui.prompt('Minimum song length in bars', String(BF.project.songBars)); if (n) BF.commit((p) => { p.songBars = Math.round(BF.clamp(n, 1, 512, p.songBars)); }); } },
   ]));
   $('menuView').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
     { label: 'Playlist', hint: 'F5', checked: W.isOpen('playlist'), action: () => W.toggle('playlist') },

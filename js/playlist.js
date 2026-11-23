@@ -19,6 +19,7 @@
     });
   }
   let peaks = new Map();
+  P.forgetPeaks = () => { peaks = new Map(); };
   let drag = null;
 
   P.build = function () {
@@ -228,7 +229,7 @@
       mk.addEventListener('contextmenu', (ev) => {
         ev.preventDefault(); ev.stopPropagation();
         BF.ui.menuAt(mk, [
-          { label: 'Rename…', action: () => { const n = BF.ui.prompt('Marker name', m.name); if (n) BF.commit((q) => { q.markers[mi].name = n.slice(0, 40); }); } },
+          { label: 'Rename…', action: async () => { const n = await BF.ui.prompt('Marker name', m.name); if (n) BF.commit((q) => { q.markers[mi].name = n.slice(0, 40); }); } },
           { label: 'Remove', action: () => BF.commit((q) => { q.markers.splice(mi, 1); }) },
         ]);
       });
@@ -256,7 +257,7 @@
       nm.className = 'trk-name';
       nm.textContent = t.name;
       nm.title = 'Double-click to rename';
-      nm.addEventListener('dblclick', () => { const n = BF.ui.prompt('Track name', t.name); if (n) BF.commit((q) => { q.tracks[ti].name = n; }); });
+      nm.addEventListener('dblclick', async () => { const n = await BF.ui.prompt('Track name', t.name); if (n) BF.commit((q) => { q.tracks[ti].name = n; }); });
       const ins = document.createElement('input');
       ins.type = 'number'; ins.min = 0; ins.max = BF.INSERTS; ins.value = t.insert || 0; ins.className = 'rack-ins';
       ins.title = 'Mixer insert for audio clips on this track (0 = Master)';
@@ -355,7 +356,7 @@
     if (c.kind === 'pattern') {
       BF.setView((q) => { q.currentPattern = c.patternId; }, 'pattern');
       BF.win.toggle('rack', true);
-    } else BF.audio.previewClip(c);
+    } else BF.sampleEditor.open(c.sampleId); // audio: open it in the audio editor
   }
 
   function markSel() { tracksEl.querySelectorAll('.pclip').forEach((x) => x.classList.toggle('sel', P.sel.has(x.dataset.id))); }
@@ -699,7 +700,10 @@
     prev.addEventListener('click', () => BF.audio.previewClip(BF.project.clips.find((x) => x.id === c.id)));
     const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = 'Tip: Shift + drag the clip edge to stretch it.';
     speed.el.classList.add('inline'); pitch.el.classList.add('inline'); gain.el.classList.add('inline');
-    panel.append(name, mode, speed.el, pitch.el, gain.el, bpmL, guess, prev, hint);
+    const editA = document.createElement('button'); editA.className = 'btn small'; editA.textContent = '✎ Edit audio…';
+    editA.title = 'Open this audio in the audio editor (trim, cut, reverse, fades, normalize)';
+    editA.addEventListener('click', () => BF.sampleEditor.open(c.sampleId));
+    panel.append(name, mode, speed.el, pitch.el, gain.el, bpmL, guess, prev, editA, hint);
   }
 
   // ---------- drawing helpers ----------

@@ -5,7 +5,7 @@
   'use strict';
   const BF = window.BF;
   const LV = (BF.live = { held: new Map(), devices: [] });
-  BF.rec = { armed: false, quantize: true };
+  BF.rec = { armed: false, quantize: true, precount: false, stepEdit: false };
 
   /** A note that sounds until released. Drums and one-shot samples ignore the release and ring out. */
   BF.audio.liveNote = function (ch, key, vel) {
@@ -56,6 +56,12 @@
     if (LV.held.has(id)) LV.off(src, key);
     const entry = { handle: BF.audio.liveNote(ch, key, vel), key, vel, chId: ch.id };
     if (BF.rec.armed && BF.transport.playing) entry.start = stepNow();
+    else if (BF.rec.stepEdit && !BF.transport.playing) { // step edit (Ctrl+E): write at the piano roll's edit cursor
+      const len = BF.piano.snap || 1;
+      const at = BF.piano.cursor || 0;
+      BF.commit(() => { const q = BF.pattern(); (q.notes[ch.id] || (q.notes[ch.id] = [])).push({ id: BF.uid('n'), start: at, len, key, vel }); }, null, 'notes');
+      entry.stepEdit = true;
+    }
     LV.held.set(id, entry);
     BF.piano.flash?.(key, true);
   };
@@ -67,6 +73,10 @@
     LV.held.delete(id);
     e.handle.release();
     BF.piano.flash?.(key, false);
+    if (e.stepEdit && ![...LV.held.values()].some((x) => x.stepEdit)) { // all keys up: move the cursor on
+      BF.piano.cursor = ((BF.piano.cursor || 0) + (BF.piano.snap || 1)) % BF.pattern().length;
+      BF.piano.draw();
+    }
     if (e.start === undefined || !BF.transport.playing) return;
     const pt = BF.pattern();
     let end = stepNow();

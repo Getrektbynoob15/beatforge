@@ -6,7 +6,10 @@
 (function () {
   'use strict';
   const BF = window.BF;
-  const PR = (BF.piano = { tool: 'draw', snap: 1, sel: new Set(), typing: false, ghost: true });
+  const PR = (BF.piano = { tool: 'draw', snap: 1, sel: new Set(), typing: false, ghost: true, slide: false, porta: false, lane: 'vel', color: 0 });
+  // note colours (0 = the channel colour); like a DAW's note colour groups
+  const NOTE_COLORS = [null, '#ff6b6b', '#ff9f43', '#feca57', '#7bed9f', '#2ed573', '#1dd1a1', '#48dbfb', '#54a0ff', '#5f27cd', '#a29bfe', '#ff9ff3', '#f368e0', '#c8d6e5', '#8395a7', '#ffffff'];
+  const LANES = { vel: 'Velocity', pan: 'Pan', fine: 'Fine pitch' };
   const ROW = 14; // px per key
   const KEYW = 58; // keyboard width
   const RULER = 20;
@@ -84,7 +87,20 @@
     toolsBtn.textContent = 'Tools ▾';
     toolsBtn.title = 'Note tools (work on the selected notes, or all notes when nothing is selected)';
     toolsBtn.addEventListener('click', () => BF.ui.menuAt(toolsBtn, PR.toolsMenu()));
-    toolbar.append(chanSel, ...toolBtns, snapSel, stampSel, keySel, scaleSel, toolsBtn, zout, zin, typing);
+    const mk = (label, title, on) => { const b = document.createElement('button'); b.className = 'btn small'; b.textContent = label; b.title = title; b.setAttribute('aria-pressed', 'false'); b.addEventListener('click', on); return b; };
+    PR.slideBtn = mk('◢ Slide', 'Slide notes (S): new notes bend the note that is playing to their pitch instead of playing themselves', () => PR.toggleMode('slide'));
+    PR.portaBtn = mk('⤳ Porta', 'Portamento (O): new notes glide in from the previous note', () => PR.toggleMode('porta'));
+    PR.laneSel = document.createElement('select');
+    PR.laneSel.setAttribute('aria-label', 'Event lane');
+    PR.laneSel.title = 'What the lane under the notes edits (F)';
+    Object.entries(LANES).forEach(([v, l]) => PR.laneSel.add(new Option(`Lane: ${l}`, v)));
+    PR.laneSel.addEventListener('change', () => { PR.lane = PR.laneSel.value; draw(); });
+    PR.colorSel = document.createElement('select');
+    PR.colorSel.setAttribute('aria-label', 'Note colour');
+    PR.colorSel.title = 'Colour for new notes (Alt+C colours the selected notes)';
+    NOTE_COLORS.forEach((c, i) => PR.colorSel.add(new Option(i ? `Colour ${i}` : 'Colour: channel', i)));
+    PR.colorSel.addEventListener('change', () => { PR.color = +PR.colorSel.value; });
+    toolbar.append(chanSel, ...toolBtns, snapSel, stampSel, keySel, scaleSel, toolsBtn, PR.slideBtn, PR.portaBtn, PR.laneSel, PR.colorSel, zout, zin, typing);
     cv = document.createElement('canvas');
     cv.className = 'pr-canvas';
     cv.tabIndex = 0;
@@ -97,6 +113,7 @@
     cv.addEventListener('contextmenu', (e) => e.preventDefault());
     cv.addEventListener('wheel', wheel, { passive: false });
     cv.addEventListener('keydown', keys);
+    cv.addEventListener('dblclick', (e) => { const h = hit(e); if (h.note) PR.noteProps(h.note.id); });
     PR.setTool('draw');
     return root;
   };
@@ -149,7 +166,8 @@
       if (!arr.length) delete pt.notes[c.id];
     }, key, 'notes');
   }
-  const newNote = (start, key, len = lastLen, vel = 0.8) => ({ id: BF.uid('n'), start: Math.max(0, start), len, key: Math.min(127, Math.max(0, key)), vel });
+  const newNote = (start, key, len = lastLen, vel = 0.8) => Object.assign({ id: BF.uid('n'), start: Math.max(0, start), len, key: Math.min(127, Math.max(0, key)), vel },
+    PR.slide ? { slide: true } : {}, PR.porta ? { porta: true } : {}, PR.color ? { color: PR.color } : {});
 
   function down(e) {
     cv.focus();
@@ -159,7 +177,7 @@
     cv.setPointerCapture(e.pointerId);
     const key = `pr-${e.timeStamp}`;
     if (h.zone === 'keys') { BF.audio.previewNote(c, h.k, 0.8, 0.4); return; }
-    if (h.zone === 'ruler') return;
+    if (h.zone === 'ruler') { PR.cursor = Math.max(0, snapStep(h.s, 'floor')); draw(); return; } // edit cursor (step edit)
     if (h.zone === 'vel') { drag = { type: 'vel', key }; velAt(h, key); return bindDrag(); }
 
     const rightOrDelete = e.button === 2 || (PR.tool === 'delete' && e.button === 0);
@@ -286,13 +304,20 @@
 
   function velAt(h, key) {
     const { h: H } = dims();
-    const v = Math.min(1, Math.max(0.02, (H - h.y) / (VEL - 6)));
+    const f = Math.min(1, Math.max(0, (H - 3 - h.y) / (VEL - 6))); // 0 bottom .. 1 top of the lane
+    const v = PR.lane === 'pan' ? Math.round((f * 2 - 1) * 100) / 100 : PR.lane === 'fine' ? Math.round(f * 200 - 100) : Math.max(0.02, f);
+    const field = PR.lane;
     const s = stepOf(h.x);
     const targets = notes().filter((n) => s >= n.start && s <= n.start + Math.max(n.len, 0.5));
     const pick = targets.some((n) => PR.sel.has(n.id)) ? targets.filter((n) => PR.sel.has(n.id)) : targets;
     if (!pick.length) return;
     const ids = new Set(pick.map((n) => n.id));
-    edit((arr) => arr.forEach((n) => { if (ids.has(n.id)) n.vel = v; }), key);
+    edit((arr) => arr.forEach((n) => {
+      if (!ids.has(n.id)) return;
+      if (field === 'vel') n.vel = v;
+      else if (Math.abs(v) < (field === 'pan' ? 0.04 : 3)) delete n[field]; // snaps to the centre
+      else n[field] = v;
+    }), key);
   }
 
   function keys(e) {
@@ -345,6 +370,64 @@
   }
 
   // ---------- note tools (FL-style names and Alt shortcuts) ----------
+  /** S / O: slide or portamento mode for new notes; with notes selected it also switches them. */
+  PR.toggleMode = function (m) {
+    PR[m] = !PR[m];
+    const btn = m === 'slide' ? PR.slideBtn : PR.portaBtn;
+    if (btn) btn.setAttribute('aria-pressed', String(PR[m]));
+    if (PR.sel.size) PR.op(m, PR[m]);
+    BF.ui.toast(`${m === 'slide' ? 'Slide' : 'Portamento'} ${PR[m] ? 'on' : 'off'}${PR.sel.size ? ' (selected notes too)' : ''}`);
+  };
+
+  /** Double-click a note: all of its properties. */
+  PR.noteProps = function (id) {
+    const n0 = notes().find((n) => n.id === id);
+    if (!n0) return;
+    const d = document.createElement('dialog');
+    d.className = 'dlg';
+    const h2 = document.createElement('h2'); h2.textContent = `Note ${BF.noteName(n0.key)}`;
+    const body = document.createElement('div');
+    const row = (label, el) => { const l = document.createElement('label'); l.className = 'set-row'; const t = document.createElement('span'); t.textContent = label; l.append(t, el); body.append(l); return el; };
+    const num = (v, min, max, step) => { const i = document.createElement('input'); i.type = 'number'; i.min = min; i.max = max; i.step = step; i.value = v; return i; };
+    const chk = (v) => { const i = document.createElement('input'); i.type = 'checkbox'; i.checked = !!v; return i; };
+    const f = {
+      key: row('Pitch (MIDI note, 60 = C5)', num(n0.key, 0, 127, 1)),
+      vel: row('Velocity (%)', num(Math.round(n0.vel * 100), 1, 100, 1)),
+      pan: row('Pan (−100 left … 100 right)', num(Math.round((n0.pan || 0) * 100), -100, 100, 1)),
+      fine: row('Fine pitch (cents)', num(n0.fine || 0, -100, 100, 1)),
+      start: row('Start (steps)', num(n0.start, 0, 4096, 0.01)),
+      len: row('Length (steps)', num(n0.len, 0.05, 4096, 0.01)),
+      slide: row('Slide note', chk(n0.slide)),
+      porta: row('Portamento', chk(n0.porta)),
+      mute: row('Muted', chk(n0.mute)),
+      color: row('Colour', (() => { const s2 = document.createElement('select'); NOTE_COLORS.forEach((c, i) => s2.add(new Option(i ? `Colour ${i}` : 'Channel colour', i))); s2.value = n0.color || 0; return s2; })()),
+    };
+    const ok = document.createElement('button'); ok.className = 'btn accent'; ok.textContent = 'OK';
+    const cancel = document.createElement('button'); cancel.className = 'btn'; cancel.textContent = 'Cancel';
+    const actions = document.createElement('div'); actions.className = 'dlg-actions'; actions.append(cancel, ok);
+    d.append(h2, body, actions);
+    document.body.append(d);
+    d.addEventListener('close', () => d.remove());
+    cancel.addEventListener('click', () => d.close());
+    ok.addEventListener('click', () => {
+      edit((arr) => {
+        const n = arr.find((x) => x.id === id);
+        if (!n) return;
+        n.key = Math.round(BF.clamp(f.key.value, 0, 127, n.key));
+        n.vel = BF.clamp(f.vel.value / 100, 0.01, 1, n.vel);
+        const pan = BF.clamp(f.pan.value / 100, -1, 1, 0); if (pan) n.pan = pan; else delete n.pan;
+        const fine = Math.round(BF.clamp(f.fine.value, -100, 100, 0)); if (fine) n.fine = fine; else delete n.fine;
+        n.start = BF.clamp(f.start.value, 0, 4096, n.start);
+        n.len = BF.clamp(f.len.value, 0.05, 4096, n.len);
+        ['slide', 'porta', 'mute'].forEach((k) => { if (f[k].checked) n[k] = true; else delete n[k]; });
+        const col = +f.color.value; if (col) n.color = col; else delete n.color;
+      });
+      d.close();
+    });
+    d.showModal();
+    f.vel.focus();
+  };
+
   // ---------- more classic-DAW keys ----------
   let lastSnap = 1;
   PR.toggleSnap = function () {
@@ -368,6 +451,17 @@
     const ns = notes();
     const select = (list) => { PR.sel = new Set(list.map((n) => n.id)); draw(); };
     if (e.altKey && !mod && K === 'm') { stop(); PR.op(e.shiftKey ? 'unmuteSel' : 'mute'); return true; }
+    if (!mod && !e.altKey && !e.shiftKey && !PR.typing && (K === 's' || K === 'o')) { stop(); PR.toggleMode(K === 's' ? 'slide' : 'porta'); return true; }
+    if (!mod && !e.altKey && !PR.typing && K === 'f') { // next property in the event lane (Shift+F: previous)
+      stop();
+      const ks = Object.keys(LANES), i = ks.indexOf(PR.lane);
+      PR.lane = ks[(i + (e.shiftKey ? ks.length - 1 : 1)) % ks.length];
+      if (PR.laneSel) PR.laneSel.value = PR.lane;
+      BF.ui.toast(`Lane: ${LANES[PR.lane]}`);
+      draw();
+      return true;
+    }
+    if (e.altKey && !mod && K === 'c') { stop(); const c = PR.color || 1; PR.op('color', c); BF.ui.toast(`Selected notes: colour ${c}`); return true; }
     if (e.altKey && !mod && K === 'v') { stop(); PR.ghost = !PR.ghost; BF.ui.toast(`Ghost notes ${PR.ghost ? 'on' : 'off'}`); draw(); return true; }
     if (e.altKey && !mod && (k === 'ArrowLeft' || k === 'ArrowRight')) { // nudge: a tenth of a step
       if (!PR.sel.size) return false;
@@ -388,7 +482,14 @@
         select(pick);
         return true;
       }
-      if (K === 'c') { stop(); const keys = new Set(ns.filter((n) => PR.sel.has(n.id)).map((n) => n.key)); select(ns.filter((n) => keys.has(n.key))); return true; }
+      if (K === 'c') { // select by colour (or by pitch when the selected notes have no colour)
+        stop();
+        const s0 = ns.filter((n) => PR.sel.has(n.id));
+        const cols = new Set(s0.map((n) => n.color || 0));
+        if (s0.length && !cols.has(0)) select(ns.filter((n) => cols.has(n.color || 0)));
+        else { const keys = new Set(s0.map((n) => n.key)); select(ns.filter((n) => keys.has(n.key))); }
+        return true;
+      }
       if (K === 'd') { stop(); PR.op('discard'); return true; }
     }
     if (mod && !e.altKey && !e.shiftKey && K === 'g') { stop(); PR.op('glue'); return true; }
@@ -489,6 +590,9 @@
       else if (op === 'transpose') pick.forEach((n) => { n.key = Math.min(127, Math.max(0, n.key + arg)); });
       else if (op === 'unmute') arr.forEach((n) => { delete n.mute; });
       else if (op === 'mute') pick.forEach((n) => { n.mute = true; });
+      else if (op === 'color') pick.forEach((n) => { if (arg) n.color = arg; else delete n.color; });
+      else if (op === 'slide') pick.forEach((n) => { if (arg) n.slide = true; else delete n.slide; });
+      else if (op === 'porta') pick.forEach((n) => { if (arg) n.porta = true; else delete n.porta; });
       else if (op === 'unmuteSel') pick.forEach((n) => { delete n.mute; });
       else if (op === 'discard') pick.forEach((n) => { n.len = Math.min(n.len, 0.5); });
       else if (op === 'flam') {
@@ -575,9 +679,14 @@
       const x = xOf(n.start), y = yOf(n.key), nw = Math.max(3, n.len * zoom - 1);
       const sel = PR.sel.has(n.id);
       g.globalAlpha = 0.45 + n.vel * 0.55;
-      g.fillStyle = sel ? '#ffffff' : n.mute ? '#5b6270' : accent;
+      g.fillStyle = sel ? '#ffffff' : n.mute ? '#5b6270' : NOTE_COLORS[n.color] || accent;
       g.fillRect(x, y + 1, nw, ROW - 2);
       g.globalAlpha = 1;
+      if (n.slide) { // slide note: a ramp drawn across it
+        g.fillStyle = 'rgba(0,0,0,.45)';
+        g.beginPath(); g.moveTo(x, y + ROW - 1); g.lineTo(x + nw, y + 1); g.lineTo(x + nw, y + ROW - 1); g.closePath(); g.fill();
+      }
+      if (n.porta) { g.fillStyle = '#04212b'; g.beginPath(); g.moveTo(x, y + 1); g.lineTo(x + 6, y + ROW / 2); g.lineTo(x, y + ROW - 1); g.closePath(); g.fill(); }
       g.fillStyle = 'rgba(0,0,0,.35)';
       g.fillRect(x + nw - 3, y + 1, 3, ROW - 2);
       if (nw > 26 && ROW >= 12) { g.fillStyle = '#04212b'; g.font = '10px system-ui, sans-serif'; g.fillText(BF.noteName(n.key), x + 3, y + ROW - 4); }
@@ -588,6 +697,8 @@
       g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
       g.setLineDash([]);
     }
+    // step-edit cursor
+    if (BF.rec.stepEdit) { g.fillStyle = '#ffc94d'; g.fillRect(xOf(PR.cursor || 0), RULER, 2, gridH); }
     // playhead
     const T = BF.transport;
     if (T.playing) {
@@ -621,14 +732,20 @@
     g.fillStyle = '#0f1115';
     g.fillRect(0, vy, w, VEL);
     g.fillStyle = '#9aa3b2';
-    g.fillText('Velocity', 6, vy + 14);
+    g.fillText(LANES[PR.lane], 6, vy + 14);
     g.save();
     g.beginPath(); g.rect(KEYW, vy, w - KEYW, VEL); g.clip();
+    const lh = VEL - 8, mid = h - 3 - lh / 2;
+    if (PR.lane !== 'vel') { g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(KEYW, mid, w - KEYW, 1); }
     notes().forEach((n) => {
-      const x = xOf(n.start), bh = n.vel * (VEL - 8);
-      g.fillStyle = PR.sel.has(n.id) ? '#fff' : accent;
-      g.fillRect(x, h - bh - 2, 3, bh);
-      g.beginPath(); g.arc(x + 1.5, h - bh - 2, 3, 0, Math.PI * 2); g.fill();
+      const x = xOf(n.start);
+      g.fillStyle = PR.sel.has(n.id) ? '#fff' : NOTE_COLORS[n.color] || accent;
+      let top, bh;
+      if (PR.lane === 'vel') { bh = n.vel * lh; top = h - bh - 2; }
+      else { const f = PR.lane === 'pan' ? (n.pan || 0) : (n.fine || 0) / 100; top = f >= 0 ? mid - f * (lh / 2) : mid; bh = Math.max(1, Math.abs(f) * (lh / 2)); }
+      g.fillRect(x, top, 3, bh);
+      const dotY = PR.lane === 'vel' ? top : (PR.lane === 'pan' ? (n.pan || 0) : (n.fine || 0) / 100) >= 0 ? top : top + bh;
+      g.beginPath(); g.arc(x + 1.5, dotY, 3, 0, Math.PI * 2); g.fill();
     });
     g.restore();
     g.fillStyle = '#2a2f3a';

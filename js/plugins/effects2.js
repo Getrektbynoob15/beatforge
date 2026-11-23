@@ -13,7 +13,7 @@
   }
   const SYNC = [['0.0625', '1/16'], ['0.125', '1/8'], ['0.25', '1/4'], ['0.5', '1/2'], ['1', '1 bar'], ['2', '2 bars']];
   const syncHz = (v, bpm) => 1 / ((parseFloat(v) * 4 * 60) / bpm);
-  const SOURCES = [['0', 'Off'], ...Array.from({ length: 16 }, (_, i) => [String(i + 1), `Insert ${i + 1}`])];
+  const SOURCES = [['0', 'Off'], ...Array.from({ length: 32 }, (_, i) => [String(i + 1), `Insert ${i + 1}`])];
 
   function dryWet(ctx) {
     const input = ctx.createGain(), output = ctx.createGain(), dry = ctx.createGain(), wet = ctx.createGain();

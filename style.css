@@ -246,7 +246,7 @@ input[type=range] { accent-color: var(--accent); }
 .bpm-field input { width: 62px; }
 @media (max-width: 1500px) { .wb-l { display: none; } .wb { padding-inline: 7px; } }
 @media (max-width: 1300px) { .brand-l, .fl { display: none; } .menus .menu-btn { padding-inline: 6px; } }
-@media (max-width: 1180px) { .hintbar { display: none; } }
+@media (max-width: 1560px) { .hintbar { display: none; } }
 
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .upd-notes { max-height: 260px; overflow: auto; white-space: pre-wrap; background: #0b0d10; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; }
@@ -290,3 +290,38 @@ input[type=range] { accent-color: var(--accent); }
 .store-err { font-size: 11px; color: var(--danger); flex-basis: 100%; }
 .store-empty { color: var(--muted); }
 .time-marker { position: absolute; top: 0; height: 22px; max-width: 160px; padding: 3px 6px 0 5px; border-left: 2px solid #ffc94d; color: #ffc94d; font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: linear-gradient(90deg, rgba(255, 201, 77, .14), transparent); z-index: 2; }
+
+/* ---------- templates ---------- */
+.tpl-dlg { width: min(720px, 92vw); max-width: 720px; }
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; }
+.tpl-grid h3, .tpl-grid .hint { grid-column: 1 / -1; margin: 6px 0 0; }
+.tpl-grid h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.tpl-card { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); cursor: pointer; }
+.tpl-card:hover { border-color: var(--accent); }
+.tpl-card b { font-size: 14px; }
+.tpl-card span { color: var(--muted); font-size: 12px; }
+.tpl-del { position: absolute; top: 8px; right: 8px; }
+
+/* ---------- master knobs + CPU meter in the top bar ---------- */
+.masterk { display: flex; align-items: center; gap: 2px; }
+.masterk .knob.compact .knob-dial { width: 26px; height: 26px; }
+.cpu { display: flex; align-items: center; gap: 5px; }
+.cpu-bar { width: 42px; height: 8px; border-radius: 4px; background: var(--panel-3); overflow: hidden; border: 1px solid var(--line); }
+.cpu-bar i { display: block; height: 100%; width: 4%; background: var(--ok); transition: width .2s; }
+.cpu-bar i.hot { background: var(--danger); }
+#preBtn { font-size: 9px; letter-spacing: -.02em; }
+@media (max-width: 1300px) { .cpu { display: none; } }
+
+/* zipped channel rows (Alt+Z / Alt+U) */
+.rack-row.zipped { min-height: 0; height: 14px; padding-top: 0; padding-bottom: 0; overflow: hidden; opacity: .75; }
+.rack-row.zipped > *:not(.led):not(.rack-name) { visibility: hidden; }
+.rack-row.zipped .rack-name { font-size: 10px; line-height: 14px; }
+.prompt-dlg { min-width: 340px; }
+.prompt-label { display: flex; flex-direction: column; gap: 8px; font-weight: 600; }
+.prompt-input { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-weight: 400; }
+
+/* ---------- audio editor ---------- */
+.se { display: flex; flex-direction: column; height: 100%; padding: 8px 10px; gap: 6px; }
+.se-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.se-wave { flex: 1; min-height: 80px; width: 100%; border-radius: 6px; border: 1px solid var(--line); cursor: text; touch-action: none; }
+.se-info { margin: 0; }

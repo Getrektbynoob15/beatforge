@@ -25,6 +25,19 @@
     }
   };
 
+  /** One metronome click at audio time t (accent = first beat of a bar). */
+  R.click = function (g, t, accent) {
+    const ctx = g.ctx;
+    const o = ctx.createOscillator(), e = ctx.createGain();
+    o.frequency.value = accent ? 1760 : 1320;
+    e.gain.setValueAtTime(0, t);
+    e.gain.linearRampToValueAtTime(accent ? 0.32 : 0.2, t + 0.002);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    e.gain.linearRampToValueAtTime(0, t + 0.055);
+    o.connect(e).connect(g.inserts[0].preview);
+    o.start(t); o.stop(t + 0.06);
+  };
+
   // ---------- audio recording ----------
 
   R.getInput = async function () {

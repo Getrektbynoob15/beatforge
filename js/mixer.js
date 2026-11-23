@@ -1,4 +1,4 @@
-/* mixer.js: Master + 16 inserts. Each strip: meter, fader, pan, mute, solo. The selected insert's effect slots
+/* mixer.js: Master + 32 inserts. Each strip: meter, fader, pan, mute, solo. The selected insert's effect slots
  * (up to 10, processed top to bottom) are shown on the right: add, open, bypass, reorder, remove. */
 (function () {
   'use strict';
@@ -34,7 +34,7 @@
     name.textContent = m.name;
     name.title = `${m.name}: click to show its effects, double-click to rename`;
     name.addEventListener('click', () => { M.selected = i; M.render(); });
-    name.addEventListener('dblclick', () => { const n = BF.ui.prompt('Insert name', m.name); if (n) BF.commit((q) => { q.mixer[i].name = n; }); });
+    name.addEventListener('dblclick', async () => { const n = await BF.ui.prompt('Insert name', m.name); if (n) BF.commit((q) => { q.mixer[i].name = n; }); });
     const fxDot = document.createElement('div');
     fxDot.className = 'mx-fxcount';
     const sends = i > 0 ? (m.route?.sends || []).map((x) => x.to) : [];

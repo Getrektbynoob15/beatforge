@@ -29,9 +29,9 @@
     });
   };
 
-  PT.rename = function (id) {
+  PT.rename = async function (id) {
     const pt = BF.project.patterns.find((x) => x.id === id);
-    const n = BF.ui.prompt('Pattern name', pt.name);
+    const n = await BF.ui.prompt('Pattern name', pt.name);
     if (n) BF.commit(() => { BF.project.patterns.find((x) => x.id === id).name = n; });
   };
 

@@ -105,9 +105,12 @@
     return out;
   }
 
+  /** The project as saved in a .bfp file (only the audio it uses). */
+  IO.serialize = function (p = BF.project) { return { ...p, samples: usedSamples(p), savedAt: new Date().toISOString() }; };
+
   IO.save = function () {
     const p = BF.project;
-    const data = { ...p, samples: usedSamples(p), savedAt: new Date().toISOString() };
+    const data = IO.serialize(p);
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     // .bfp = BeatForge Project (JSON inside, all audio included). Older .beatforge.json files still open.
     download(blob, `${safeName(p.name)}.bfp`);
@@ -115,8 +118,8 @@
     BF.ui.toast(`Saved ${safeName(p.name)}.bfp (${fmtMB(blob.size)})`);
   };
 
-  IO.saveAs = function () {
-    const n = BF.ui.prompt('Project name', BF.project.name);
+  IO.saveAs = async function () {
+    const n = await BF.ui.prompt('Project name', BF.project.name);
     if (!n) return;
     BF.commit((p) => { p.name = n; });
     IO.save();
@@ -130,6 +133,17 @@
       BF.ui.busy('Opening project…');
       let raw;
       try { raw = JSON.parse(await file.text()); } catch { throw new Error('This file is not valid JSON, so it is not a BeatForge project.'); }
+      await IO.load(raw, file.name.replace(/(\.beatforge)?\.(json|bfp)$/i, ''));
+    } catch (e) {
+      BF.ui.toast(e.message || String(e), true);
+    } finally {
+      BF.ui.busy(null);
+    }
+  };
+
+  /** Load a parsed project (from a file or a template). `fallbackName` names an untitled project. */
+  IO.load = async function (raw, fallbackName, { keepName = true } = {}) {
+    try {
       const p = BF.normalizeProject(raw);
       const decoded = new Map();
       for (const [id, s] of Object.entries(p.samples)) {
@@ -138,7 +152,7 @@
         BF.ui.busy(`Decoding ${s.name}…`);
         decoded.set(id, await BF.audio.decode(bytes.buffer).catch(() => { throw new Error(`The audio "${s.name}" in this project could not be decoded.`); }));
       }
-      if (!p.name || p.name === 'Untitled') p.name = file.name.replace(/(\.beatforge)?\.(json|bfp)$/i, '');
+      if (!keepName || !p.name || p.name === 'Untitled') p.name = fallbackName || 'Untitled';
       BF.transport.stop();
       BF.audio.buffers.clear();
       BF.audio.stretched.clear();
@@ -150,8 +164,6 @@
       BF.editor.target = null;
       BF.replaceProject(p);
       BF.ui.toast(`Opened "${p.name}"${raw.version === 1 || !raw.version ? ' (converted from BeatForge 1)' : ''}`);
-    } catch (e) {
-      BF.ui.toast(e.message || String(e), true);
     } finally {
       BF.ui.busy(null);
     }
@@ -177,7 +189,7 @@
   IO.exportStems = async function () {
     const p = BF.project;
     const used = [...new Set([...p.channels.map((c) => c.insert), ...p.clips.filter((c) => c.kind === 'audio').map((c) => p.tracks[c.track].insert || 0)])].filter((i) => i > 0).sort((a, b) => a - b);
-    if (!used.length) { BF.ui.toast('Route channels to mixer inserts (1–16) first; each insert becomes one stem.', true); return; }
+    if (!used.length) { BF.ui.toast('Route channels to mixer inserts (1–32) first; each insert becomes one stem.', true); return; }
     BF.transport.stop();
     const saved = JSON.stringify(p.mixer.map((m) => [m.mute, m.solo]));
     try {
