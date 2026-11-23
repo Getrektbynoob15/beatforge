@@ -13,4 +13,6 @@ contextBridge.exposeInMainWorld('beatforgeDesktop', {
   onSaveRequest: (fn) => ipcRenderer.on('app:save', () => fn()),
   pluginCatalog: () => ipcRenderer.invoke('plugins:catalog'),
   pluginSource: (id, version) => ipcRenderer.invoke('plugins:source', String(id), String(version)),
+  collab: (method, path, body) => ipcRenderer.invoke('collab:request', String(method), String(path), body),
+  onJoin: (fn) => ipcRenderer.on('collab:join', (_e, code) => fn(String(code))),
 });

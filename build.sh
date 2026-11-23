@@ -41,7 +41,7 @@ for plat in win32-x64 linux-x64; do
     cp -r "$out" "$deb/opt/beatforge"
     ln -s /opt/beatforge/beatforge "$deb/usr/bin/beatforge"
     cp desktop/icon.png "$deb/usr/share/icons/hicolor/512x512/apps/beatforge.png"
-    printf '[Desktop Entry]\nName=BeatForge\nComment=Make beats: channel rack, piano roll, playlist and mixer\nExec=/opt/beatforge/beatforge %%U\nIcon=beatforge\nType=Application\nCategories=AudioVideo;Audio;Music;\nStartupWMClass=BeatForge\nTerminal=false\n' > "$deb/usr/share/applications/beatforge.desktop"
+    printf '[Desktop Entry]\nName=BeatForge\nComment=Make beats: channel rack, piano roll, playlist and mixer\nExec=/opt/beatforge/beatforge %%U\nIcon=beatforge\nType=Application\nCategories=AudioVideo;Audio;Music;\nStartupWMClass=BeatForge\nTerminal=false\nMimeType=x-scheme-handler/beatforge;\n' > "$deb/usr/share/applications/beatforge.desktop"
     cat > "$deb/DEBIAN/control" <<CTRL
 Package: beatforge
 Version: $VER
@@ -77,7 +77,8 @@ import plistlib, sys
 p, ver = sys.argv[1], sys.argv[2]
 d = plistlib.load(open(p, 'rb'))
 d.update({'CFBundleName': 'BeatForge', 'CFBundleDisplayName': 'BeatForge', 'CFBundleIdentifier': 'com.grbnstudios.beatforge',
-          'CFBundleShortVersionString': ver, 'CFBundleVersion': ver, 'NSMicrophoneUsageDescription': 'BeatForge records audio from your microphone or line input when you record audio.'})
+          'CFBundleShortVersionString': ver, 'CFBundleVersion': ver,
+          'CFBundleURLTypes': [{'CFBundleURLName': 'BeatForge invite link', 'CFBundleURLSchemes': ['beatforge']}], 'NSMicrophoneUsageDescription': 'BeatForge records audio from your microphone or line input when you record audio.'})
 d.pop('NSCameraUsageDescription', None)
 plistlib.dump(d, open(p, 'wb'))
 PY

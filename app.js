@@ -192,6 +192,8 @@
     { label: 'Import a pack (.zip or folder)…', action: () => BF.packImport.ask() },
     { label: 'Add a folder to the browser…', action: () => BF.files.addFolder() },
     '-',
+    { label: 'Live session (make music together)…', action: () => BF.collab.open() },
+    '-',
     { label: 'Export song as MP3… (small, for Discord)', hint: 'Ctrl+Shift+R', action: () => BF.exporter.export('mp3') },
     { label: 'Export song as OGG… (smallest)', action: () => BF.exporter.export('ogg') },
     { label: 'Export song as WAV… (full quality)', hint: 'Ctrl+R', action: () => BF.io.exportWav('song') },
@@ -306,6 +308,9 @@
   requestAnimationFrame(frame);
   BF.live.start(false);
   BF.files.init();
+  $('collabBtn').addEventListener('click', () => BF.collab.open());
+  BF.collab.render();
+  BF.collab.fromLink();
   BF.ready = true; // the desktop shell only accepts an update after this line ran
   BF.ui.toast('Press Space to play the demo. F6 channel rack, F7 piano roll, F9 mixer, F1 shortcuts.');
 })();

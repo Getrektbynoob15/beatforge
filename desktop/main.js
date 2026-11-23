@@ -24,6 +24,29 @@ const BUNDLED_VERSION = require('./package.json').version;
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// ---------- invite links: beatforge://join/CODE (from the website's "Open in the app" button) ----------
+let pendingJoin = null;
+let rendererReady = false;
+function handleLink(url) {
+  const m = /^beatforge:\/\/join\/([A-Za-z2-9]{6})\/?$/.exec(String(url || '').trim());
+  if (!m) return;
+  pendingJoin = m[1].toUpperCase();
+  deliverJoin();
+}
+function deliverJoin() {
+  if (!pendingJoin || !rendererReady || !win || win.isDestroyed()) return;
+  win.webContents.send('collab:join', pendingJoin);
+  pendingJoin = null;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+}
+app.setAsDefaultProtocolClient('beatforge');
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
+app.on('second-instance', (_e, argv) => { handleLink(argv.find((a) => String(a).startsWith('beatforge://'))); if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.focus(); } });
+app.on('open-url', (e, url) => { e.preventDefault(); handleLink(url); }); // macOS
+handleLink(process.argv.find((a) => String(a).startsWith('beatforge://'))); // Windows / Linux: first launch from a link
+
 const userDir = () => app.getPath('userData');
 const versionsDir = () => path.join(userDir(), 'app-versions');
 const currentFile = () => path.join(userDir(), 'app-current.json');
@@ -209,11 +232,20 @@ async function pluginSource(id, version) {
   if (sha !== item.sha256) throw new Error('The downloaded plugin does not match the signed list. It was not installed.');
   return b.toString('utf8');
 }
+// live sessions: only the matchmaker on grbnstudios.com (the music itself goes directly between the computers)
+const COLLAB_PATH = /^\/beatforge\/collab\/rooms(\/[A-Z2-9]{6}(\/join|\/pending\?token=[a-f0-9]{48}|\/answer|\/answer\/[a-f0-9]{24}|\?token=[a-f0-9]{48})?)?$/;
+ipcMain.handle('collab:request', async (_e, method, p, body) => {
+  try {
+    if (!['GET', 'POST', 'DELETE'].includes(method) || typeof p !== 'string' || !COLLAB_PATH.test(p)) return { error: 'Not allowed.' };
+    const r = await fetch(`https://grbnstudios.com/api/main${p}`, { method, headers: { 'User-Agent': 'BeatForge', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body).slice(0, 60000) : undefined });
+    return { status: r.status, json: await r.json().catch(() => ({})) };
+  } catch (e) { return { error: String(e.message || e) }; }
+});
 ipcMain.handle('plugins:catalog', async () => { try { return { catalog: await pluginCatalog() }; } catch (e) { return { error: String(e.message || e) }; } });
 ipcMain.handle('plugins:source', async (_e, id, version) => { try { return { source: await pluginSource(id, version) }; } catch (e) { return { error: String(e.message || e) }; } });
 
 ipcMain.handle('app:info', () => ({ version: loaded.version, bundled: BUNDLED_VERSION, shellApi: SHELL_API, updated: loaded.updated, settings: readJson(settingsFile(), { autoUpdate: true }) }));
-ipcMain.handle('app:booted', () => { clearTimeout(bootTimer); return true; });
+ipcMain.handle('app:booted', () => { clearTimeout(bootTimer); rendererReady = true; setTimeout(deliverJoin, 300); return true; });
 ipcMain.handle('update:check', async () => { try { return await checkUpdate(); } catch (e) { return { error: String(e.message || e) }; } });
 ipcMain.handle('update:install', async () => { try { return await installUpdate(); } catch (e) { return { ok: false, message: String(e.message || e) }; } });
 ipcMain.handle('update:restart', () => { closingOk = true; app.relaunch(); app.exit(0); });
@@ -232,6 +264,7 @@ ipcMain.handle('update:auto-due', () => {
 });
 
 app.whenReady().then(() => {
+  if (!singleInstance) return;
   // Windows/Linux: no menu bar (the app has its own). macOS always shows one: keep just the app menu (Quit, Hide).
   Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }]) : null);
   // The page may only load its own files, data: and blob: URLs. (Update checks run in this main process.)

@@ -67,6 +67,7 @@
       swing: 0,
       masterPitch: 0,
       songBars: 4,
+      markers: [],
       channels,
       patterns: [p1],
       currentPattern: p1.id,

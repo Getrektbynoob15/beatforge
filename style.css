@@ -345,3 +345,12 @@ input[type=range] { accent-color: var(--accent); }
 .splitter:hover, .splitter:active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .pl-split { position: relative; flex: 0 0 0; width: 0; }
 .pl-split .splitter { right: -3px; }
+
+/* live sessions */
+.collab-btn { display: inline-flex; align-items: center; gap: 3px; }
+.collab-btn[aria-pressed="true"] { border-color: var(--ok); color: var(--ok); }
+.collab-n:empty { display: none; }
+.collab-code { font: 800 34px/1.1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .25em; text-align: center; padding: 10px; margin: 8px 0 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--accent); user-select: all; }
+.collab-join { display: flex; gap: 8px; margin-top: 6px; }
+.collab-join input { flex: 1; text-transform: uppercase; letter-spacing: .2em; font-weight: 700; }
+.collab-dlg { width: min(460px, 92vw); }

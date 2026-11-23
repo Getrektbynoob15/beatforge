@@ -41,6 +41,11 @@ Section "BeatForge"
   WriteUninstaller "$INSTDIR\Uninstall BeatForge.exe"
   CreateShortCut "$SMPROGRAMS\BeatForge.lnk" "$INSTDIR\BeatForge.exe" "" "$INSTDIR\BeatForge.exe" 0
   CreateShortCut "$DESKTOP\BeatForge.lnk" "$INSTDIR\BeatForge.exe" "" "$INSTDIR\BeatForge.exe" 0
+  ; invite links (beatforge://join/CODE) open BeatForge
+  WriteRegStr HKCU "Software\Classes\beatforge" "" "URL:BeatForge invite link"
+  WriteRegStr HKCU "Software\Classes\beatforge" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\beatforge\DefaultIcon" "" "$INSTDIR\BeatForge.exe,0"
+  WriteRegStr HKCU "Software\Classes\beatforge\shell\open\command" "" '"$INSTDIR\BeatForge.exe" "%1"'
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "BeatForge"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "GRBN Studios"
@@ -57,6 +62,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\BeatForge.lnk"
   Delete "$DESKTOP\BeatForge.lnk"
   DeleteRegKey HKCU "${UNINST_KEY}"
+  DeleteRegKey HKCU "Software\Classes\beatforge"
   ; the install folder is always ...\Programs\BeatForge (no folder choice), so removing it is safe
   RMDir /r "$LOCALAPPDATA\Programs\BeatForge"
 SectionEnd
