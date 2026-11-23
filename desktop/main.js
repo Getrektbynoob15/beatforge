@@ -128,6 +128,31 @@ async function checkUpdate() {
 
 const SAFE_PATH = /^(index\.html|style\.css|app\.js|LICENSE|js\/[A-Za-z0-9_\-/]+\.js)$/;
 
+// Windows: antivirus (Defender) and the search indexer briefly lock files that were just written, so renaming the
+// fresh folder can fail with EPERM/EBUSY/EACCES. Retry for a few seconds, then fall back to copying it.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function moveDir(from, to) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.renameSync(from, to);
+      return;
+    } catch (e) {
+      lastError = e;
+      if (!['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY'].includes(e.code)) throw e;
+      await sleep(250 * (attempt + 1));
+    }
+  }
+  try {
+    fs.rmSync(to, { recursive: true, force: true });
+    fs.cpSync(from, to, { recursive: true });
+  } catch (e) {
+    throw new Error(`Windows kept the update files locked (${(lastError || e).code}). Try again in a minute.`);
+  }
+  try { fs.rmSync(from, { recursive: true, force: true }); } catch { /* removed next time */ }
+}
+
 async function installUpdate() {
   const info = await checkUpdate();
   if (!info.newer) return { ok: false, message: 'You already have the newest version.' };
@@ -151,12 +176,11 @@ async function installUpdate() {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, Buffer.from(b64, 'base64'));
   }
-  fs.rmSync(target, { recursive: true, force: true });
-  fs.renameSync(tmp, target);
+  await moveDir(tmp, target);
   writeJsonAtomic(currentFile(), { version: pkg.version, installedAt: new Date().toISOString() });
   // keep only the newest two installed versions
   const keep = new Set([pkg.version, loaded.version]);
-  for (const d of fs.readdirSync(versionsDir())) if (!keep.has(d)) fs.rmSync(path.join(versionsDir(), d), { recursive: true, force: true });
+  for (const d of fs.readdirSync(versionsDir())) if (!keep.has(d)) { try { fs.rmSync(path.join(versionsDir(), d), { recursive: true, force: true }); } catch { /* locked: next time */ } }
   return { ok: true, version: pkg.version };
 }
 
