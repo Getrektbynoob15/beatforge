@@ -241,6 +241,10 @@
         srcBpm: clamp(c.srcBpm, 40, 300, 120),
         gain: clamp(c.gain, 0, 2, 1),
         ...(c.reverse ? { reverse: true } : {}),
+        ...(+c.fadeIn > 0 ? { fadeIn: clamp(c.fadeIn, 0, 60, 0) } : {}),
+        ...(+c.fadeOut > 0 ? { fadeOut: clamp(c.fadeOut, 0, 60, 0) } : {}),
+        ...(Number.isFinite(+c.pan) && +c.pan !== 0 ? { pan: clamp(c.pan, -1, 1, 0) } : {}),
+        ...(+c.trim > 0 ? { trim: clamp(c.trim, 0, 3600, 0) } : {}),
       }),
     })).concat(autoClips);
     return p;

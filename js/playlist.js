@@ -701,10 +701,20 @@
     prev.addEventListener('click', () => BF.audio.previewClip(BF.project.clips.find((x) => x.id === c.id)));
     const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = 'Tip: Shift + drag the clip edge to stretch it.';
     speed.el.classList.add('inline'); pitch.el.classList.add('inline'); gain.el.classList.add('inline');
+    // more mix options per clip: fades, pan, start offset, reverse
+    const srcDur = BF.audio.buffers.get(c.sampleId)?.duration || 1;
+    const fadeIn = BF.ui.knob({ param: { name: 'Fade in', min: 0, max: 10, default: 0, fmt: (v) => (v < 0.005 ? 'Off' : BF.plugins.util.sec(v)) }, value: c.fadeIn || 0, onInput: (v) => upd((k) => { if (v > 0.004) k.fadeIn = v; else delete k.fadeIn; }, `fi-${c.id}`) });
+    const fadeOut = BF.ui.knob({ param: { name: 'Fade out', min: 0, max: 10, default: 0, fmt: (v) => (v < 0.005 ? 'Off' : BF.plugins.util.sec(v)) }, value: c.fadeOut || 0, onInput: (v) => upd((k) => { if (v > 0.004) k.fadeOut = v; else delete k.fadeOut; }, `fo-${c.id}`) });
+    const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'Centre' : v < 0 ? `${Math.round(-v * 100)}% L` : `${Math.round(v * 100)}% R`) }, value: c.pan || 0, onInput: (v) => upd((k) => { if (Math.abs(v) >= 0.01) k.pan = v; else delete k.pan; }, `pan-${c.id}`) });
+    const trim = BF.ui.knob({ param: { name: 'Start', min: 0, max: Math.max(0.1, srcDur - 0.05), default: 0, fmt: BF.plugins.util.sec }, value: c.trim || 0, onInput: (v) => upd((k) => { if (v > 0.001) k.trim = v; else delete k.trim; k.len = 0; }, `trim-${c.id}`) });
+    const rev = document.createElement('button'); rev.className = 'btn small'; rev.textContent = '⇆ Reverse';
+    rev.setAttribute('aria-pressed', String(!!c.reverse));
+    rev.title = 'Play this clip backwards (key 9)';
+    rev.addEventListener('click', () => upd((k) => { if (k.reverse) delete k.reverse; else k.reverse = true; }));
     const editA = document.createElement('button'); editA.className = 'btn small'; editA.textContent = '✎ Edit audio…';
     editA.title = 'Open this audio in the audio editor (trim, cut, reverse, fades, normalize)';
     editA.addEventListener('click', () => BF.sampleEditor.open(c.sampleId));
-    panel.append(name, mode, speed.el, pitch.el, gain.el, bpmL, guess, prev, editA, hint);
+    panel.append(name, mode, speed.el, pitch.el, gain.el, pan.el, fadeIn.el, fadeOut.el, trim.el, rev, bpmL, guess, prev, editA, hint);
   }
 
   // ---------- drawing helpers ----------

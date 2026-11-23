@@ -135,6 +135,40 @@
     return h.getFile();
   };
 
+  /** Decode only the first `sec` seconds of a big file, so previews start fast (a 20 MB stem is not fully loaded). */
+  async function decodeStart(file, sec) {
+    if (file.size < 3 * 1024 * 1024) return BF.audio.decode(await file.arrayBuffer());
+    if (/\.wav$/i.test(file.name)) {
+      try {
+        const head = new Uint8Array(await file.slice(0, 65536).arrayBuffer());
+        const v = new DataView(head.buffer);
+        const tag = (o) => String.fromCharCode(head[o], head[o + 1], head[o + 2], head[o + 3]);
+        if (tag(0) === 'RIFF' && tag(8) === 'WAVE') {
+          let o = 12, byteRate = 0, align = 1;
+          while (o + 8 <= head.length) {
+            const id = tag(o), len = v.getUint32(o + 4, true);
+            if (id === 'fmt ') { byteRate = v.getUint32(o + 16, true); align = v.getUint16(o + 20, true) || 1; }
+            if (id === 'data' && byteRate) {
+              const want = Math.min(len, file.size - (o + 8), Math.floor((byteRate * sec) / align) * align);
+              const body = new Uint8Array(await file.slice(o + 8, o + 8 + want).arrayBuffer());
+              const out = new Uint8Array(o + 8 + body.length);
+              out.set(head.subarray(0, o + 8));
+              out.set(body, o + 8);
+              const ov = new DataView(out.buffer);
+              ov.setUint32(4, out.length - 8, true);
+              ov.setUint32(o + 4, body.length, true);
+              return await BF.audio.decode(out.buffer);
+            }
+            o += 8 + len + (len & 1);
+          }
+        }
+      } catch { /* fall back to the whole file */ }
+    } else if (/\.mp3$/i.test(file.name)) {
+      try { return await BF.audio.decode(await file.slice(0, Math.min(file.size, 1600 * 1024)).arrayBuffer()); } catch { /* whole file */ }
+    }
+    return BF.audio.decode(await file.arrayBuffer());
+  }
+
   const decoded = new Map();
   let playing = null;
   F.preview = async function (ref) {
@@ -143,8 +177,7 @@
       let buf = decoded.get(ref);
       if (!buf) {
         const file = await F.resolve(ref);
-        if (file.size > 60 * 1024 * 1024) { BF.ui.toast('That file is too big to preview.'); return; }
-        buf = await BF.audio.decode(await file.arrayBuffer());
+        buf = await decodeStart(file, 30);
         decoded.set(ref, buf);
         if (decoded.size > 40) decoded.delete(decoded.keys().next().value);
       }

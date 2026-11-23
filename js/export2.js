@@ -125,7 +125,7 @@
     try {
       BF.transport.stop();
       BF.ui.busy('Rendering song…');
-      const buf = await BF.renderSong('song', format === 'ogg' ? 48000 : 44100);
+      const buf = await BF.renderSong('song', format === 'ogg' ? 48000 : 44100, (f) => BF.ui.busy(`Rendering song… ${Math.round(f * 100)}%`));
       const blob = format === 'ogg' ? await X.ogg(buf) : await X.mp3(buf);
       const name = `${safeName(BF.project.name)}.${format === 'ogg' ? 'ogg' : 'mp3'}`;
       BF.io.download(blob, name);

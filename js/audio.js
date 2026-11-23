@@ -189,8 +189,24 @@
     } else {
       out = chanStrip(g, ch).gain;
     }
-    if (!extras) { def.play(g.ctx, out, params || ch.params, time, key + ch.pitch, vel, dur); return; }
-    playWithExtras(g.ctx, def, out, params || ch.params, time, key + ch.pitch, vel, dur, extras, mp);
+    // every note gets its own little output; once all of its sound sources have ended it is disconnected, so finished
+    // notes stop costing anything (before, every note ever played stayed in the graph and long songs rendered slowly)
+    const ctx = g.ctx;
+    const ng = ctx.createGain();
+    ng.connect(out);
+    const made = [];
+    const origOsc = ctx.createOscillator, origBuf = ctx.createBufferSource, origCs = ctx.createConstantSource;
+    ctx.createOscillator = function () { const n = origOsc.call(ctx); made.push(n); return n; };
+    ctx.createBufferSource = function () { const n = origBuf.call(ctx); made.push(n); return n; };
+    ctx.createConstantSource = function () { const n = origCs.call(ctx); made.push(n); return n; };
+    try {
+      if (!extras) def.play(ctx, ng, params || ch.params, time, key + ch.pitch, vel, dur);
+      else playWithExtras(ctx, def, ng, params || ch.params, time, key + ch.pitch, vel, dur, extras, mp);
+    } finally { delete ctx.createOscillator; delete ctx.createBufferSource; delete ctx.createConstantSource; }
+    let left = made.length;
+    if (!left) return;
+    const done = () => { if (--left === 0) setTimeout(() => { try { ng.disconnect(); } catch { /* */ } }, 0); };
+    made.forEach((n) => n.addEventListener('ended', done, { once: true }));
   };
 
   /** Per-note pan / fine pitch / portamento / slide bends / master pitch. Pitch moves go through every oscillator's and
@@ -251,7 +267,7 @@
   /** Length of an audio clip in seconds when it plays at its speed (before trimming). */
   A.clipNaturalSec = function (c, bpm) {
     const b = A.buffers.get(c.sampleId);
-    return b ? b.duration / A.clipSpeed(c, bpm) : 0;
+    return b ? Math.max(0.01, b.duration / A.clipSpeed(c, bpm) - (c.trim || 0)) : 0;
   };
   /** Length in beats as shown in the playlist (trimmed length if set). */
   A.clipBeats = function (c, bpm = BF.project.bpm) {
@@ -290,15 +306,20 @@
     src.buffer = r.buffer;
     src.playbackRate.value = r.rate;
     const env = ctx.createGain();
-    const f = Math.min(A.FADE, len / 2);
+    // volume over the clip: gain, fade in / fade out (seconds of clip time) and a tiny declick at both ends
+    const g0 = c.gain ?? 1, fi = c.fadeIn || 0, fo = c.fadeOut || 0, dc = Math.min(A.FADE, len / 2);
+    const vAt = (x) => g0 * (fi > 0 ? Math.min(1, x / fi) : 1) * (fo > 0 ? Math.min(1, Math.max(0, (totalSec - x) / fo)) : 1);
     env.gain.setValueAtTime(0, when);
-    env.gain.linearRampToValueAtTime(c.gain ?? 1, when + f);
-    env.gain.setValueAtTime(c.gain ?? 1, when + len - f);
+    const pts = [offsetSec + dc, fi, totalSec - fo, totalSec - dc].filter((x) => x > offsetSec && x < totalSec).sort((a, b) => a - b);
+    pts.forEach((x) => env.gain.linearRampToValueAtTime(vAt(x), when + (x - offsetSec)));
     env.gain.linearRampToValueAtTime(0, when + len);
-    src.connect(env).connect(dest);
-    src.start(when, offsetSec * r.rate);
+    let tail = env;
+    if (c.pan) { const pn = ctx.createStereoPanner(); pn.pan.value = c.pan; env.connect(pn); tail = pn; }
+    src.connect(env);
+    tail.connect(dest);
+    src.start(when, (offsetSec + (c.trim || 0)) * r.rate);
     src.stop(when + len + 0.01);
-    src.onended = () => { try { env.disconnect(); } catch { /* */ } };
+    src.onended = () => { try { tail.disconnect(); env.disconnect(); } catch { /* */ } };
     return src;
   };
 

@@ -4,7 +4,7 @@
   'use strict';
   const BF = window.BF;
   const IO = (BF.io = {});
-  const MAX_AUDIO = 50 * 1024 * 1024;
+  const MAX_AUDIO = 1024 * 1024 * 1024; // 1 GB per audio file (very big files use a lot of memory)
   const MAX_PROJECT = 600 * 1024 * 1024;
   const fmtMB = (n) => `${(n / 1048576).toFixed(1)} MB`;
 
@@ -44,7 +44,7 @@
   /** Decode one file and store it as a project sample (not an undo step on its own). Returns the sample id or null. */
   IO.addSample = async function (f) {
     try {
-      if (f.size > MAX_AUDIO) throw new Error(`"${f.name}" is ${fmtMB(f.size)}. The limit is 50 MB per file.`);
+      if (f.size > MAX_AUDIO) throw new Error(`"${f.name}" is ${fmtMB(f.size)}. The limit is 1 GB per file.`);
       if (f.size === 0) throw new Error(`"${f.name}" is empty.`);
       BF.ui.busy(`Decoding ${f.name}…`);
       const bytes = new Uint8Array(await f.arrayBuffer());
@@ -65,6 +65,7 @@
   /** Files dropped on the playlist: one audio clip each, placed one after another. */
   IO.importToPlaylist = async function (files, track = 0, beat = 0) {
     let at = beat, added = 0;
+    if (files.some((f) => /\.zip$/i.test(f.name))) { IO.openZip(files.find((f) => /\.zip$/i.test(f.name))); return; }
     for (const f of files) {
       if (/\.(json|bfp|midi?|flp|fst)$/i.test(f.name)) { IO.open(f); return; }
       const id = await IO.addSample(f);
@@ -83,7 +84,16 @@
   };
 
   /** Files dropped on the channel rack: one Sampler channel each. */
+  /** A dropped / picked .zip is a pack: unpack it and ask what to do. */
+  IO.openZip = async function (f) {
+    BF.ui.busy(`Unpacking ${f.name}…`);
+    try { const items = await BF.packImport.readZip(f); BF.ui.busy(null); BF.packImport.handle(items, f.name.replace(/\.zip$/i, '')); }
+    catch (e) { BF.ui.toast(`Import failed: ${e.message || e}`, true); }
+    finally { BF.ui.busy(null); }
+  };
+
   IO.importToRack = async function (files) {
+    if (files.some((f) => /\.zip$/i.test(f.name))) { IO.openZip(files.find((f) => /\.zip$/i.test(f.name))); return; }
     for (const f of files) {
       const id = await IO.addSample(f);
       if (!id) continue;
@@ -174,7 +184,7 @@
     try {
       BF.transport.stop();
       BF.ui.busy(mode === 'song' ? 'Rendering song…' : 'Rendering pattern…');
-      const buf = await BF.renderSong(mode);
+      const buf = await BF.renderSong(mode, 44100, (f) => BF.ui.busy(`Rendering… ${Math.round(f * 100)}%`));
       const blob = BF.encodeWav(buf);
       const name = `${safeName(BF.project.name)}${mode === 'pattern' ? `-${safeName(BF.pattern().name)}` : ''}.wav`;
       download(blob, name);

@@ -121,7 +121,7 @@
     if (T.mode !== 'song') return;
     const p = BF.project;
     for (const c of p.clips) {
-      if (c.kind !== 'audio' || p.tracks[c.track]?.mute) continue;
+      if (c.kind !== 'audio' || c.muted || p.tracks[c.track]?.mute) continue;
       const lenBeats = BF.audio.clipBeats(c, p.bpm);
       if (c.start < beat && c.start + lenBeats > beat) {
         const ins = p.tracks[c.track]?.insert || 0;
@@ -228,10 +228,10 @@
   };
 
   /** Render the whole song (Song mode, no loop) into an OfflineAudioContext. */
-  BF.renderSong = async function (mode = 'song', rate = 44100) {
-    const p = BF.project;
-    const end = mode === 'song' ? BF.songEndBeat(p) : BF.patternBeats(BF.pattern());
-    const total = Math.ceil((((end * 60) / p.bpm) + 2.5) * rate); // tail for reverb/delay/release
+  /** Render beats [from, to) of the song (+ tailSec) into a buffer that starts at `from`. */
+  async function renderPart(p, mode, rate, from, to, tailSec) {
+    const spb = 60 / p.bpm;
+    const total = Math.max(128, Math.ceil(((to - from) * spb + tailSec) * rate));
     const ctx = new OfflineAudioContext(2, total, rate);
     await BF.audio.loadWorklets(ctx).catch(() => {});
     const g = BF.audio.buildGraph(ctx);
@@ -242,7 +242,15 @@
       if (!events.has(q)) events.set(q, []);
       events.get(q).push(fn);
     };
-    BF.scheduleRange(g, p, 0, end, (b) => (b * 60) / p.bpm, mode, null, later);
+    const bt = (b) => (b - from) * spb;
+    BF.scheduleRange(g, p, from, to, bt, mode, null, later);
+    if (mode === 'song' && from > 0) { // audio clips that are already playing when this part starts
+      for (const c of p.clips) {
+        if (c.kind !== 'audio' || c.muted || p.tracks[c.track]?.mute) continue;
+        const len = BF.audio.clipBeats(c, p.bpm);
+        if (c.start < from - 1e-9 && c.start + len > from) BF.audio.playClip(ctx, c, g.inserts[p.tracks[c.track]?.insert || 0].transport, 0, (from - c.start) * spb, p.bpm);
+      }
+    }
     for (const [q, fns] of [...events.entries()].sort((a, b) => a[0] - b[0])) {
       if (q <= 0) { fns.forEach((f) => f()); continue; }
       if (q >= total) continue;
@@ -250,5 +258,46 @@
     }
     if (BF.community) BF.community.flush(ctx);
     return ctx.startRendering();
+  }
+
+  /** Render the song (or the current pattern) offline. Long songs are cut into parts that render at the same time on
+   * several CPU cores (each part starts a few seconds early so notes, echoes and reverb tails carry over, and parts are
+   * joined with a short crossfade), which makes exports several times faster. `onProgress(0..1)` is optional. */
+  BF.renderSong = async function (mode = 'song', rate = 44100, onProgress = null) {
+    const p = BF.project;
+    const end = mode === 'song' ? BF.songEndBeat(p) : BF.patternBeats(BF.pattern());
+    const spb = 60 / p.bpm;
+    const TAIL = 2.5; // reverb / delay / release after the last note
+    const songSec = end * spb;
+    const cores = Math.max(1, (navigator.hardwareConcurrency || 4) - 1);
+    const parts = mode === 'song' && songSec > 40 ? Math.min(8, cores, Math.ceil(songSec / 20)) : 1;
+    if (parts <= 1) return renderPart(p, mode, rate, 0, end, TAIL);
+    const PRE = Math.min(8, Math.max(4, songSec / parts / 3)) / spb; // pre-roll in beats
+    const XF = 0.03 / spb; // crossfade in beats
+    const bounds = Array.from({ length: parts + 1 }, (_, i) => (i === parts ? end : Math.round(((end * i) / parts) * 4) / 4));
+    let done = 0;
+    const bufs = await Promise.all(bounds.slice(0, -1).map((k0, i) => {
+      const k1 = bounds[i + 1], last = i === parts - 1;
+      const from = Math.max(0, k0 - PRE);
+      return renderPart(p, mode, rate, from, last ? k1 : Math.min(end, k1 + XF), last ? TAIL : 0)
+        .then((b) => { done++; if (onProgress) onProgress(done / parts); return { b, from, k0, k1, last }; });
+    }));
+    const total = Math.ceil((songSec + TAIL) * rate);
+    const out = new AudioBuffer({ length: total, numberOfChannels: 2, sampleRate: rate });
+    const xfN = Math.max(1, Math.round(XF * spb * rate));
+    for (const { b, from, k0, k1, last } of bufs) {
+      const dst0 = Math.round(k0 * spb * rate);
+      const src0 = dst0 - Math.round(from * spb * rate);
+      const n = Math.min(b.length - src0, (last ? total : Math.round(k1 * spb * rate) + xfN) - dst0, total - dst0);
+      for (let c = 0; c < 2; c++) {
+        const d = out.getChannelData(c), s = b.getChannelData(c);
+        for (let i = 0; i < n; i++) {
+          const v = s[src0 + i];
+          if (k0 > 0 && i < xfN) { const w = i / xfN; d[dst0 + i] = d[dst0 + i] * (1 - w) + v * w; } // fade in over the previous part's overlap
+          else d[dst0 + i] = v;
+        }
+      }
+    }
+    return out;
   };
 })();

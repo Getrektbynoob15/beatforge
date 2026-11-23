@@ -431,7 +431,9 @@
       const t = {};
       events.forEach((e) => { if (e.id === EV.PLUGIN_INTERNAL) t.internal = text(e.data, true); else if (e.id === EV.PLUGIN_NAME) t.pluginName = text(e.data, true); else if (e.id === EV.WRAPPER) t.vst = wrapperName(e.data) || t.vst; });
       const n = t.vst || t.pluginName || t.internal;
-      return { kind: /serum|sylenth|vital|spire|massive|nexus|omnisphere|keyscape|kontakt/i.test(n || '') ? 'instrument' : 'effect', names: n ? [n] : [], vst: t.vst };
+      // a known effect (limiter, EQ, reverb…) goes on the mixer; anything else (Serum presets, synths) is an instrument
+      const isFx = !/serum|sylenth|vital|spire|massive|nexus|omnisphere|keyscape|kontakt|synth|lead|bass|pad|pluck|voice/i.test(n || '') && !!F.effectFor(n || '');
+      return { kind: isFx ? 'effect' : 'instrument', names: n ? [n] : [], vst: t.vst };
     }
     return { kind: 'mixer', names };
   };
