@@ -150,9 +150,12 @@
     grid.append(h2);
     if (!mine.length) { const e = document.createElement('p'); e.className = 'hint'; e.textContent = 'None yet. Set up a project the way you like it (channels, mixer, effects), then File → Save as template…'; grid.append(e); }
     mine.forEach((t) => grid.append(card(t.name, `Saved ${new Date(t.savedAt).toLocaleDateString()}`, () => use(() => ({ raw: t.project }), t.name), t.id)));
+    const pack = document.createElement('button'); pack.className = 'btn'; pack.textContent = 'Import a template pack (.zip)…';
+    pack.title = 'A zip with stems, MIDI and samples (like the template packs made for other DAWs)';
+    pack.addEventListener('click', () => { d.close(); BF.packImport.pick(false); });
     const close = document.createElement('button'); close.className = 'btn'; close.textContent = 'Cancel';
     close.addEventListener('click', () => d.close());
-    const actions = document.createElement('div'); actions.className = 'dlg-actions'; actions.append(close);
+    const actions = document.createElement('div'); actions.className = 'dlg-actions'; actions.append(pack, close);
     d.append(grid, actions);
     document.body.append(d);
     d.addEventListener('close', () => d.remove());

@@ -54,7 +54,8 @@
     return { division, tempo, tracks: tracks.filter((t) => t.notes.length) };
   }
 
-  BF.midiImport = async function (file) {
+  /** opts: { at: beat to place it at (default: after the song), quiet: no toast, name: label for unnamed tracks } */
+  BF.midiImport = async function (file, opts = {}) {
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const mid = parse(bytes);
@@ -71,13 +72,16 @@
           bySound.forEach((notes, sound) => chans.push({ plugin: 'drum', preset: { sound }, name: bySound.size === 1 && tr.name ? tr.name : `${tr.name || 'Drums'} ${label(sound)}`.trim(), notes }));
         } else {
           const avg = tr.notes.reduce((a, n) => a + n.key, 0) / tr.notes.length;
-          chans.push({ plugin: 'synth', preset: avg < 48 ? 'Sub bass' : avg < 60 ? 'Square keys' : 'Bright lead', name: tr.name || `MIDI ${ti + 1}`, notes: tr.notes });
+          const label = tr.name || (mid.tracks.length === 1 && opts.name) || `MIDI ${ti + 1}`;
+          // pick a sound from the name first (bass / lead / pad / keys…), else from how high the notes are
+          const byName = /bass|808|sub/i.test(label) ? 'Sub bass' : /pad|ambient|chord/i.test(label) ? 'Soft pad' : /key|piano|pluck/i.test(label) ? 'Square keys' : /lead|voice|vocal|melod|rave|synth/i.test(label) ? 'Bright lead' : null;
+          chans.push({ plugin: 'synth', preset: byName || (avg < 48 ? 'Sub bass' : avg < 60 ? 'Square keys' : 'Bright lead'), name: label, notes: tr.notes });
         }
       });
       const lastStep = Math.max(...chans.flatMap((c) => c.notes.map((n) => toStep(n.end))));
       const blocks = Math.max(1, Math.ceil(lastStep / BLOCK_STEPS));
       const base = BF.project.patterns.length;
-      const startBeat = Math.ceil(Math.max(0, ...BF.project.clips.map((c) => c.start + BF.audio.clipBeats(c))) / 4) * 4;
+      const startBeat = Number.isFinite(opts.at) ? opts.at : Math.ceil(Math.max(0, ...BF.project.clips.map((c) => c.start + BF.audio.clipBeats(c))) / 4) * 4;
       let made = 0;
       BF.commit((p) => {
         const ids = chans.map((c) => {
@@ -89,6 +93,7 @@
         });
         const sigToPattern = new Map();
         const track = (() => { const used = new Set(p.clips.map((c) => c.track)); const i = p.tracks.findIndex((_, k) => !used.has(k)); return i < 0 ? 0 : i; })();
+        if (opts.name && p.tracks[track]) p.tracks[track].name = opts.name.slice(0, 40);
         for (let b = 0; b < blocks; b++) {
           const from = b * BLOCK_STEPS, to = from + BLOCK_STEPS;
           const notes = {};
@@ -111,12 +116,14 @@
           p.clips.push({ id: BF.uid('c'), kind: 'pattern', track, start: startBeat + b * (BLOCK_STEPS / 4), len: BLOCK_STEPS / 4, patternId: pt.id });
           made++;
         }
-        if (mid.tempo && !p.clips.some((c) => c.start < startBeat)) p.bpm = Math.round(mid.tempo * 100) / 100;
+        if (mid.tempo && (opts.setTempo || !p.clips.some((c) => c.start < startBeat))) p.bpm = Math.round(mid.tempo * 100) / 100;
         if (sigToPattern.size) p.currentPattern = [...sigToPattern.values()][0].id;
       });
       BF.transport.setMode('song');
-      BF.ui.toast(`Imported ${file.name}: ${chans.length} channels, ${made} playlist blocks${mid.tempo ? `, ${Math.round(mid.tempo)} BPM` : ''}.`);
+      if (!opts.quiet) BF.ui.toast(`Imported ${file.name}: ${chans.length} channels, ${made} playlist blocks${mid.tempo ? `, ${Math.round(mid.tempo)} BPM` : ''}.`);
+      return { channels: chans.length, blocks: made, tempo: mid.tempo };
     } catch (e) {
+      if (opts.quiet) throw e;
       BF.ui.toast(`MIDI import failed: ${e.message || e}`, true);
     }
   };

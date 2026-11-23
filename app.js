@@ -189,6 +189,8 @@
     { label: 'Import audio as Sampler channels…', action: () => BF.io.pickFiles((f) => BF.io.importToRack(f)) },
     '-',
     { label: 'Import MIDI file…', action: openFile },
+    { label: 'Import template pack (.zip)…', action: () => BF.packImport.pick(false) },
+    { label: 'Import template pack (folder)…', action: () => BF.packImport.pick(true) },
     '-',
     { label: 'Export song as MP3… (small, for Discord)', hint: 'Ctrl+Shift+R', action: () => BF.exporter.export('mp3') },
     { label: 'Export song as OGG… (smallest)', action: () => BF.exporter.export('ogg') },
@@ -226,6 +228,7 @@
   ]));
   $('menuHelp').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
     { label: 'Keyboard shortcuts', hint: 'F1', action: showHelp },
+    { label: 'Last import: skipped files', action: () => BF.packImport.showSkipped() },
     ...(BF.desktop && BF.desktop.available ? [
       { label: 'Check for updates…', action: () => BF.desktop.check(true) },
       { label: 'Check for updates automatically', checked: BF.desktop.info?.settings?.autoUpdate !== false, action: async () => { const on = BF.desktop.info?.settings?.autoUpdate === false; const s = await window.beatforgeDesktop.setAutoUpdate(on); BF.desktop.info.settings = s; BF.ui.toast(on ? 'Automatic update checks on.' : 'Automatic update checks off.'); } },
@@ -254,8 +257,19 @@
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
     e.preventDefault();
+    // a dropped folder or .zip = a template pack
+    const entries = [...(e.dataTransfer?.items || [])].map((it) => it.webkitGetAsEntry?.()).filter(Boolean);
+    if (entries.some((en) => en.isDirectory)) {
+      BF.packImport.readEntries(entries).then((items) => BF.packImport.importFiles(items, entries[0].name)).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true));
+      return;
+    }
     const files = [...(e.dataTransfer?.files || [])];
     if (!files.length) return;
+    if (/\.zip$/i.test(files[0].name)) {
+      BF.ui.busy(`Unpacking ${files[0].name}…`);
+      BF.packImport.readZip(files[0]).then((items) => BF.packImport.importFiles(items, files[0].name.replace(/\.zip$/i, ''))).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true)).finally(() => BF.ui.busy(null));
+      return;
+    }
     if (/\.(json|bfp|midi?|flp)$/i.test(files[0].name)) BF.io.open(files[0]);
     else BF.io.importToPlaylist(files, 0, 0);
   });
