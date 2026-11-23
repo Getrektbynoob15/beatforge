@@ -5,7 +5,7 @@
   'use strict';
   const BF = window.BF;
   const SE = (BF.sampleEditor = { id: null });
-  let root, cv, info, sel = null, history = [], dragging = null;
+  let root, cv, info, sel = null, history = [], dragging = null, playBtn = null;
 
   const buf = () => BF.audio.buffers.get(SE.id);
   const fmt = (s) => `${s.toFixed(3)} s`;
@@ -16,7 +16,7 @@
     const bar = document.createElement('div');
     bar.className = 'se-bar';
     const btn = (label, title, fn) => { const b = document.createElement('button'); b.className = 'btn small'; b.textContent = label; b.title = title; b.addEventListener('click', fn); bar.append(b); return b; };
-    btn('▶ Play', 'Play the selection (or everything)', () => play());
+    playBtn = btn('▶ Play', 'Play the selection (or everything). Press again (or Space) to stop.', () => play());
     btn('Trim', 'Keep only the selection', () => edit('trim'));
     btn('Cut', 'Delete the selection', () => edit('cut'));
     btn('Silence', 'Make the selection silent', () => edit('silence'));
@@ -181,16 +181,28 @@
     draw();
   }
 
+  /** Stop the editor's playback (also when the song plays, another preview starts or the editor closes). */
+  SE.stop = function () {
+    if (SE.playing) { try { SE.playing.stop(); } catch { /* ended */ } SE.playing = null; }
+    if (playBtn) playBtn.textContent = '▶ Play';
+  };
   function play() {
     const b = buf();
     if (!b) return;
+    if (SE.playing) { SE.stop(); return; } // Play again = stop
     const ctx = BF.audio.ensure();
     BF.audio.stopPreview?.();
+    BF.transport.stop();
     const src = ctx.createBufferSource();
     src.buffer = b;
     src.connect(BF.audio.graph.inserts[0].preview);
     const [a, z] = range(b);
     src.start(ctx.currentTime + 0.01, a / b.sampleRate, (z - a) / b.sampleRate);
     SE.playing = src;
+    if (playBtn) playBtn.textContent = '■ Stop';
+    src.onended = () => { if (SE.playing === src) { SE.playing = null; if (playBtn) playBtn.textContent = '▶ Play'; } };
   }
+  // anything that stops previews (pressing Play in the transport, a browser preview) stops the editor too
+  const baseStop = BF.audio.stopPreview;
+  BF.audio.stopPreview = function () { SE.stop(); return baseStop.apply(this, arguments); };
 })();

@@ -33,7 +33,7 @@
   W.create({ id: 'editor', title: 'Plugin', body: BF.editor.build(), rect: { x: 0.5, y: 0.06, w: 0.46, h: 0.56 }, open: false, onShow: () => BF.editor.render() });
   W.create({ id: 'picker', title: 'Plugin picker', body: BF.keys.buildPicker(), rect: { x: 0.25, y: 0.1, w: 0.5, h: 0.6 }, open: false, hotkey: 'F8' });
   W.create({ id: 'store', title: 'Plugin store', body: BF.community.build(), rect: { x: 0.15, y: 0.06, w: 0.7, h: 0.8 }, open: false, onShow: () => BF.community.render() });
-  W.create({ id: 'sampleed', title: 'Audio editor', body: BF.sampleEditor.build(), rect: { x: 0.1, y: 0.2, w: 0.8, h: 0.5 }, open: false, onShow: () => BF.sampleEditor.draw() });
+  W.create({ id: 'sampleed', title: 'Audio editor', body: BF.sampleEditor.build(), rect: { x: 0.1, y: 0.2, w: 0.8, h: 0.5 }, open: false, onShow: () => BF.sampleEditor.draw(), onHide: () => BF.sampleEditor.stop() });
   W.create({ id: 'auto', title: 'Automation', body: BF.auto.build(), rect: { x: 0.1, y: 0.5, w: 0.8, h: 0.42 }, open: false, onShow: () => BF.auto.render() });
   W.front('rack');
   const wsToggle = W.toggle;

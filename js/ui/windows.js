@@ -50,7 +50,7 @@
     const w = {
       id: opts.id, el, body, bar, tools, title,
       x: s.x ?? r.x, y: s.y ?? r.y, w: s.w ?? r.w, h: s.h ?? r.h,
-      open: s.open ?? opts.open, onShow: opts.onShow,
+      open: s.open ?? opts.open, onShow: opts.onShow, onHide: opts.onHide,
     };
     W.all.set(opts.id, w);
 
@@ -113,7 +113,7 @@
     const open = force ?? (w.el.hidden || W.focused !== id);
     w.open = open;
     w.el.hidden = !open;
-    if (open) { w.place(); W.front(id); if (w.onShow) w.onShow(); }
+    if (open) { w.place(); W.front(id); if (w.onShow) w.onShow(); } else if (w.onHide) w.onHide();
     persist();
     BF.emit('windows');
   };
