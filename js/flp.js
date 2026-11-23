@@ -236,7 +236,8 @@
       const label = (c.pluginName || c.name || file.replace(/\.[^.]+$/, '') || `Channel ${c.iid + 1}`).slice(0, 40);
       let ch;
       if (c.type === 0 && file) {
-        const f = findSample ? findSample(file) : null;
+        let f = findSample ? findSample(file) : null;
+        if (f && f.lazy) f = await BF.files.resolve(f.lazy).catch(() => null); // a file kept in a browser pack
         const id = f ? await BF.io.addSample(f) : null;
         if (id) { p.samples[id] = BF.project.samples[id]; ch = BF.newChannel('sampler', label, { preset: { sample: id } }); sampleIds.set(c.iid, id); }
         else {

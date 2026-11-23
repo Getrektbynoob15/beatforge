@@ -1,1 +1,1 @@
-window.BF_VERSION = '2.7.0';
+window.BF_VERSION = '2.8.0';

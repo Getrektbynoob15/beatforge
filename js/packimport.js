@@ -166,6 +166,42 @@
     PI.lastSkipped = skipped;
   };
 
+  /** A pack was picked or dropped: ask what to do (keep it in the browser, or also open it as a project). */
+  PI.handle = function (items, name) {
+    const usable = items.filter((x) => x.file && BF.files.kindOf(x.file.name)).length;
+    const hasFlp = items.some((x) => x.file && /\.flp$/i.test(x.file.name));
+    const d = document.createElement('dialog');
+    d.className = 'dlg';
+    const h = document.createElement('h2'); h.textContent = name;
+    const p = document.createElement('p');
+    p.textContent = `${usable} file${usable === 1 ? '' : 's'} BeatForge can use (audio, MIDI${hasFlp ? ', an FL Studio project' : ''}). Add the pack to the browser to click through the sounds and drag the ones you want into your song.`;
+    const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = `btn ${cls}`; b.textContent = label; b.addEventListener('click', () => { d.close(); fn(); }); return b; };
+    const actions = document.createElement('div'); actions.className = 'dlg-actions';
+    actions.append(
+      mk('Cancel', '', () => {}),
+      mk(hasFlp ? 'Add to browser and open the FL project' : 'Add to browser and open as a project', '', async () => { await BF.files.addPack(name, items); await PI.importFiles(items, name); }),
+      mk('Add to browser', 'accent', async () => { await BF.files.addPack(name, items); BF.ui.toast(`"${name}" is in the browser under Packs. Click a sound to hear it, drag it onto the playlist or channel rack.`); }),
+    );
+    d.append(h, p, actions);
+    document.body.append(d);
+    d.addEventListener('close', () => d.remove());
+    d.showModal();
+  };
+
+  /** Pick a .zip (or a folder), then ask. */
+  PI.ask = function () {
+    const d = document.createElement('dialog');
+    d.className = 'dlg';
+    d.innerHTML = '<h2>Import a pack</h2><p>A sample or template pack: a .zip file or a folder.</p>';
+    const actions = document.createElement('div'); actions.className = 'dlg-actions';
+    const mk = (label, fn) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = label; b.addEventListener('click', () => { d.close(); fn(); }); return b; };
+    actions.append(mk('Cancel', () => {}), mk('Pick a folder…', () => PI.pick(true)), mk('Pick a .zip…', () => PI.pick(false)));
+    d.append(actions);
+    document.body.append(d);
+    d.addEventListener('close', () => d.remove());
+    d.showModal();
+  };
+
   /** File menu: pick a .zip (or a folder) and import it. */
   PI.pick = function (folder = false) {
     const inp = document.createElement('input');
@@ -178,10 +214,11 @@
         if (!folder) {
           BF.ui.busy(`Unpacking ${files[0].name}…`);
           const items = await PI.readZip(files[0]);
-          await PI.importFiles(items, files[0].name.replace(/\.zip$/i, ''));
+          BF.ui.busy(null);
+          PI.handle(items, files[0].name.replace(/\.zip$/i, ''));
         } else {
           const items = files.map((f) => ({ path: f.webkitRelativePath || f.name, file: f }));
-          await PI.importFiles(items, (files[0].webkitRelativePath || '').split('/')[0] || 'Imported pack');
+          PI.handle(items, (files[0].webkitRelativePath || '').split('/')[0] || 'Imported pack');
         }
       } catch (e) {
         BF.ui.toast(`Import failed: ${e.message || e}`, true);

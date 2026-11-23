@@ -28,7 +28,7 @@
       e.preventDefault(); e.stopPropagation();
       root.classList.remove('drop');
       const pl = BF.browser.payload(e);
-      if (pl) { if (pl.kind === 'instrument') addChannel(pl.plugin, pl.preset, pl.name); return; }
+      if (pl) { if (pl.kind === 'instrument') addChannel(pl.plugin, pl.preset, pl.name); else if (pl.kind === 'file') BF.files.dropOnRack(pl); return; }
       BF.io.importToRack([...(e.dataTransfer?.files || [])]);
     });
     return root;

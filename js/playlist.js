@@ -279,6 +279,7 @@
         const pl = BF.browser.payload(e);
         const at = Math.max(0, snap(xToBeat(e.clientX), 'floor'));
         if (pl && pl.kind === 'audio') { P.pick = { kind: 'audio', sampleId: pl.sampleId }; place(ti, at); return; }
+        if (pl && pl.kind === 'file') { BF.files.dropOnPlaylist(pl, ti, at); return; }
         if (pl && pl.kind === 'pattern') { P.pick = { kind: 'pattern' }; BF.setView((q) => { q.currentPattern = pl.patternId; }, 'pattern'); place(ti, at); return; }
         if (pl && pl.kind === 'instrument') { BF.rack.addChannel(pl.plugin, pl.preset, pl.name); BF.win.toggle('rack', true); return; }
         if (pl) return;

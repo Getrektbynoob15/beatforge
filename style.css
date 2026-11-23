@@ -332,3 +332,7 @@ input[type=range] { accent-color: var(--accent); }
 .flp-report h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 14px 0 4px; }
 .flp-report ul { margin: 0; padding-left: 18px; line-height: 1.5; }
 .flp-report ul.warn { color: #ffc94d; }
+
+/* browser: pack / folder trees */
+.br-folder { font-weight: 600; }
+.br-folder[aria-expanded="true"] { color: var(--text); }

@@ -241,10 +241,12 @@ app.whenReady().then(() => {
     // Allowed: MIDI keyboards, and the microphone/line input for audio recording (audio only, never the camera).
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb, details) => {
     if (perm === 'midi') return cb(true);
+    // the browser's "Add a folder": reading folders the user picked themselves (never writing)
+    if (perm === 'fileSystem') return cb(!!details && details.fileAccessType !== 'writable');
     if (perm === 'media') return cb(Array.isArray(details.mediaTypes) && details.mediaTypes.length > 0 && details.mediaTypes.every((t) => t === 'audio'));
     cb(false);
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, perm, _origin, details) => perm === 'midi' || (perm === 'media' && details && details.mediaType === 'audio'));
+  session.defaultSession.setPermissionCheckHandler((_wc, perm, _origin, details) => perm === 'midi' || (perm === 'media' && details && details.mediaType === 'audio') || (perm === 'fileSystem' && details && details.fileAccessType !== 'writable'));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

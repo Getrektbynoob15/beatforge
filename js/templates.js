@@ -152,7 +152,7 @@
     mine.forEach((t) => grid.append(card(t.name, `Saved ${new Date(t.savedAt).toLocaleDateString()}`, () => use(() => ({ raw: t.project }), t.name), t.id)));
     const pack = document.createElement('button'); pack.className = 'btn'; pack.textContent = 'Import a template pack (.zip)…';
     pack.title = 'A zip with stems, MIDI and samples (like the template packs made for other DAWs)';
-    pack.addEventListener('click', () => { d.close(); BF.packImport.pick(false); });
+    pack.addEventListener('click', () => { d.close(); BF.packImport.ask(); });
     const close = document.createElement('button'); close.className = 'btn'; close.textContent = 'Cancel';
     close.addEventListener('click', () => d.close());
     const actions = document.createElement('div'); actions.className = 'dlg-actions'; actions.append(pack, close);

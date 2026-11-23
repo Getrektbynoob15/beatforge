@@ -189,8 +189,8 @@
     { label: 'Import audio as Sampler channels…', action: () => BF.io.pickFiles((f) => BF.io.importToRack(f)) },
     '-',
     { label: 'Import MIDI file…', action: openFile },
-    { label: 'Import template pack (.zip)…', action: () => BF.packImport.pick(false) },
-    { label: 'Import template pack (folder)…', action: () => BF.packImport.pick(true) },
+    { label: 'Import a pack (.zip or folder)…', action: () => BF.packImport.ask() },
+    { label: 'Add a folder to the browser…', action: () => BF.files.addFolder() },
     '-',
     { label: 'Export song as MP3… (small, for Discord)', hint: 'Ctrl+Shift+R', action: () => BF.exporter.export('mp3') },
     { label: 'Export song as OGG… (smallest)', action: () => BF.exporter.export('ogg') },
@@ -260,14 +260,14 @@
     // a dropped folder or .zip = a template pack
     const entries = [...(e.dataTransfer?.items || [])].map((it) => it.webkitGetAsEntry?.()).filter(Boolean);
     if (entries.some((en) => en.isDirectory)) {
-      BF.packImport.readEntries(entries).then((items) => BF.packImport.importFiles(items, entries[0].name)).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true));
+      BF.packImport.readEntries(entries).then((items) => BF.packImport.handle(items, entries[0].name)).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true));
       return;
     }
     const files = [...(e.dataTransfer?.files || [])];
     if (!files.length) return;
     if (/\.zip$/i.test(files[0].name)) {
       BF.ui.busy(`Unpacking ${files[0].name}…`);
-      BF.packImport.readZip(files[0]).then((items) => BF.packImport.importFiles(items, files[0].name.replace(/\.zip$/i, ''))).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true)).finally(() => BF.ui.busy(null));
+      BF.packImport.readZip(files[0]).then((items) => { BF.ui.busy(null); BF.packImport.handle(items, files[0].name.replace(/\.zip$/i, '')); }).catch((err) => BF.ui.toast(`Import failed: ${err.message || err}`, true)).finally(() => BF.ui.busy(null));
       return;
     }
     if (/\.(json|bfp|midi?|flp|fst)$/i.test(files[0].name)) BF.io.open(files[0]);
@@ -305,6 +305,7 @@
   BF.emit('load');
   requestAnimationFrame(frame);
   BF.live.start(false);
+  BF.files.init();
   BF.ready = true; // the desktop shell only accepts an update after this line ran
   BF.ui.toast('Press Space to play the demo. F6 channel rack, F7 piano roll, F9 mixer, F1 shortcuts.');
 })();
