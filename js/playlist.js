@@ -9,7 +9,15 @@
   const P = (BF.playlist = { tool: 'draw', snap: 1, sel: new Set(), pick: { kind: 'pattern' } });
   const HEADW = 150, TRACKH = 40, RULERH = 22;
   let px = 22; // px per beat
-  let root, picker, scroller, inner, tracksEl, ruler, playhead, panel, toolbar, snapSel;
+  let root, picker, scroller, inner, tracksEl, ruler, playhead, panel, toolbar, snapSel, loopEl, loopShade;
+  function drawLoop() {
+    const L = BF.transport.loop;
+    [loopEl, loopShade].forEach((el) => {
+      if (!el) return;
+      el.hidden = !L;
+      if (L) { el.style.left = `${HEADW + L.start * px}px`; el.style.width = `${(L.end - L.start) * px}px`; }
+    });
+  }
   let peaks = new Map();
   let drag = null;
 
@@ -18,7 +26,7 @@
     root.className = 'pl';
     toolbar = document.createElement('div');
     toolbar.className = 'pr-tools';
-    [['draw', '✎ Draw', 'P'], ['paint', '🖌 Paint', 'B'], ['delete', '⌫ Delete', 'D'], ['slice', '✂ Slice', 'C'], ['select', '⬚ Select', 'E']].forEach(([id, l, k]) => {
+    [['draw', '✎ Draw', 'P'], ['paint', '🖌 Paint', 'B'], ['delete', '⌫ Delete', 'D'], ['mute', '🔇 Mute', 'T'], ['slice', '✂ Slice', 'C'], ['select', '⬚ Select', 'E']].forEach(([id, l, k]) => {
       const b = document.createElement('button');
       b.className = 'btn small tool'; b.dataset.tool = id; b.textContent = l; b.title = `${l.slice(2)} tool (${k})`;
       b.addEventListener('click', () => P.setTool(id));
@@ -72,12 +80,32 @@
       }
     }, { passive: false });
     scroller.addEventListener('keydown', keys);
+    // ruler: click = set the start position (and clear the loop); drag = select a loop region
     ruler.addEventListener('pointerdown', (e) => {
-      const beat = Math.max(0, snap(xToBeat(e.clientX), 'floor'));
-      BF.transport.startBeat = beat;
-      if (BF.transport.playing && BF.transport.mode === 'song') { BF.transport.stop(); setTimeout(BF.transport.play, 30); }
-      BF.emit('transport');
+      if (e.button !== 0) return;
+      const b0 = Math.max(0, snap(xToBeat(e.clientX), 'floor'));
+      const x0 = e.clientX;
+      let dragged = false;
+      ruler.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        if (!dragged && Math.abs(ev.clientX - x0) < 5) return;
+        dragged = true;
+        const b1 = Math.max(0, snap(xToBeat(ev.clientX)));
+        const s = Math.min(b0, b1), en = Math.max(b0, b1);
+        BF.transport.loop = en - s >= (P.snap || 0.25) ? { start: s, end: en } : null;
+        drawLoop();
+      };
+      const up = () => {
+        ruler.removeEventListener('pointermove', move); ruler.removeEventListener('pointerup', up);
+        if (!dragged) { BF.transport.loop = null; BF.transport.startBeat = b0; drawLoop(); }
+        else if (BF.transport.loop) BF.transport.startBeat = BF.transport.loop.start;
+        if (BF.transport.playing && BF.transport.mode === 'song') { BF.transport.stop(); setTimeout(BF.transport.play, 30); }
+        BF.emit('transport');
+      };
+      ruler.addEventListener('pointermove', move);
+      ruler.addEventListener('pointerup', up);
     });
+    ruler.addEventListener('dblclick', () => { BF.transport.loop = null; drawLoop(); BF.emit('transport'); });
     P.setTool('draw');
     return root;
   };
@@ -180,6 +208,14 @@
     sEnd.style.left = `${HEADW + BF.songEndBeat() * px}px`;
     sEnd.title = 'Song end (loops here)';
     ruler.append(sEnd);
+    loopEl = document.createElement('div');
+    loopEl.className = 'loop-region';
+    loopEl.title = 'Loop region (Song mode). Double-click the ruler to remove it.';
+    ruler.append(loopEl);
+    loopShade = document.createElement('div');
+    loopShade.className = 'loop-shade';
+    inner.append(loopShade);
+    drawLoop();
     const start = document.createElement('div');
     start.className = 'start-mark';
     start.style.left = `${HEADW + BF.transport.startBeat * px}px`;
@@ -245,7 +281,7 @@
   function clipEl(c) {
     const p = BF.project;
     const el = document.createElement('button');
-    el.className = 'pclip ' + c.kind + (P.sel.has(c.id) ? ' sel' : '');
+    el.className = 'pclip ' + c.kind + (P.sel.has(c.id) ? ' sel' : '') + (c.muted ? ' muted' : '');
     el.dataset.id = c.id;
     const len = clipLen(c);
     el.style.left = `${c.start * px}px`;
@@ -315,7 +351,7 @@
     if (e.button === 2 || P.tool === 'delete') { startErase(e); return; }
     if (e.button !== 0) return;
     if (e.ctrlKey || e.metaKey || P.tool === 'select') { startBox(e); return; }
-    if (P.tool === 'slice') return;
+    if (P.tool === 'slice' || P.tool === 'mute') return;
     const c = place(ti, beat);
     if (!c) return;
     if (P.tool === 'paint') {
@@ -363,6 +399,10 @@
     if (e.ctrlKey || e.metaKey) { // toggle selection
       if (P.sel.has(c.id)) P.sel.delete(c.id); else P.sel.add(c.id);
       markSel(); renderPanel();
+      return;
+    }
+    if (P.tool === 'mute') {
+      BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); if (k) k.muted = !k.muted; });
       return;
     }
     if (P.tool === 'slice') {
@@ -497,7 +537,7 @@
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key;
     const sel = () => BF.project.clips.filter((c) => P.sel.has(c.id));
-    if (k === 'Delete' || k === 'Backspace') {
+    if ((k === 'Delete' || k === 'Backspace') && !mod) {
       if (!P.sel.size) return;
       e.preventDefault(); e.stopPropagation();
       const ids = new Set(P.sel); P.sel.clear();
@@ -524,7 +564,7 @@
       const d = k === 'ArrowUp' ? -1 : 1;
       BF.commit((q) => q.clips.forEach((c) => { if (P.sel.has(c.id)) c.track = Math.min(BF.TRACKS - 1, Math.max(0, c.track + d)); }), `arrow-${k}`);
     } else if (!mod) {
-      const t = { p: 'draw', b: 'paint', d: 'delete', c: 'slice', e: 'select' }[k.toLowerCase()];
+      const t = { p: 'draw', b: 'paint', d: 'delete', c: 'slice', e: 'select', t: 'mute' }[k.toLowerCase()];
       if (t) { e.preventDefault(); e.stopPropagation(); P.setTool(t); }
     }
   }

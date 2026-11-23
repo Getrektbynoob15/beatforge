@@ -179,9 +179,13 @@ app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
     cb({ cancel: !/^(file|data|blob|devtools):/.test(details.url) });
   });
-  // Only MIDI keyboards are allowed (no camera, microphone, location, notifications…).
-  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'midi'));
-  session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === 'midi');
+    // Allowed: MIDI keyboards, and the microphone/line input for audio recording (audio only, never the camera).
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb, details) => {
+    if (perm === 'midi') return cb(true);
+    if (perm === 'media') return cb(Array.isArray(details.mediaTypes) && details.mediaTypes.length > 0 && details.mediaTypes.every((t) => t === 'audio'));
+    cb(false);
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, perm, _origin, details) => perm === 'midi' || (perm === 'media' && details && details.mediaType === 'audio'));
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

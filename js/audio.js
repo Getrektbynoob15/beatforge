@@ -17,12 +17,47 @@
   A.reversedCache = new Map();
   A.FADE = 0.004;
 
+  // Audio-thread processors (loaded from a blob, so it also works from file:// and offline).
+  const WORKLET = `
+  class BfEnvelope extends AudioWorkletProcessor {
+    static get parameterDescriptors() { return [
+      { name: 'attack', defaultValue: 0.002, minValue: 0.0001, maxValue: 1, automationRate: 'k-rate' },
+      { name: 'release', defaultValue: 0.18, minValue: 0.005, maxValue: 3, automationRate: 'k-rate' },
+      { name: 'sens', defaultValue: 4, minValue: 0, maxValue: 50, automationRate: 'k-rate' },
+      { name: 'amount', defaultValue: 0.75, minValue: 0, maxValue: 1, automationRate: 'k-rate' } ]; }
+    constructor() { super(); this.env = 0; }
+    process(inputs, outputs, p) {
+      const out = outputs[0][0]; const inp = inputs[0];
+      const a = Math.exp(-1 / (p.attack[0] * sampleRate)), r = Math.exp(-1 / (p.release[0] * sampleRate));
+      const sens = p.sens[0], amount = p.amount[0];
+      let env = this.env;
+      for (let i = 0; i < out.length; i++) {
+        let x = 0;
+        for (let c = 0; c < inp.length; c++) { const v = Math.abs(inp[c][i]); if (v > x) x = v; }
+        env = x > env ? a * env + (1 - a) * x : r * env + (1 - r) * x;
+        out[i] = -Math.min(1, env * sens) * amount;
+      }
+      this.env = env;
+      return true;
+    }
+  }
+  registerProcessor('bf-envelope', BfEnvelope);`;
+  let workletUrl = null;
+  A.loadWorklets = async function (ctx) {
+    if (ctx.__bfWorklets || !ctx.audioWorklet) return;
+    workletUrl = workletUrl || URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+    await ctx.audioWorklet.addModule(workletUrl);
+    ctx.__bfWorklets = true;
+  };
+
   A.ensure = function () {
     if (!A.ctx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       A.ctx = new Ctx({ latencyHint: 'interactive' });
       A.graph = A.buildGraph(A.ctx);
       A.sync(A.graph, BF.project);
+      // once the processors are loaded, rebuild effect chains so plugins that need them use them
+      A.loadWorklets(A.ctx).then(() => { A.graph.inserts.forEach((ins) => { ins.fxKey = null; ins.fx.forEach((x) => x.inst.dispose()); ins.fx = []; }); A.sync(A.graph, BF.project); }).catch((e) => console.warn('worklet', e));
     }
     if (A.ctx.state === 'suspended') A.ctx.resume();
     return A.ctx;
@@ -52,7 +87,7 @@
       inserts.push({ input, fader, pan, meter, transport, preview, fx: [], fxKey: null });
     }
     inserts[0].meter.connect(ctx.destination);
-    for (let i = 1; i <= BF.INSERTS; i++) inserts[i].meter.connect(inserts[0].input);
+    // inserts 1..16 are routed by syncRoutes() (to Master and/or sends to other inserts)
     return { ctx, inserts, channels: new Map() };
   };
 
@@ -81,7 +116,41 @@
       ins.fx = next;
       ins.fxKey = key;
     }
-    ins.fx.forEach((x, i) => x.inst.set(m.fx[i].params, bpm));
+    ins.fx.forEach((x, i) => {
+      x.inst.set(m.fx[i].params, bpm);
+      // sidechain: feed the chosen insert's output into the effect's detector
+      if (x.inst.sidechainInput) {
+        const src = m.fx[i].bypass ? 0 : x.inst.sidechainSource(m.fx[i].params);
+        if (x.scFrom !== src) {
+          if (x.scFrom) { try { g.inserts[x.scFrom].pan.disconnect(x.inst.sidechainInput); } catch { /* */ } }
+          if (src) g.inserts[src].pan.connect(x.inst.sidechainInput);
+          x.scFrom = src;
+        }
+      }
+    });
+  }
+
+  /** Insert outputs: to Master (unless switched off) and sends (post-fader) to other inserts. */
+  function syncRoutes(g, p) {
+    for (let i = 1; i <= BF.INSERTS; i++) {
+      const ins = g.inserts[i];
+      const r = p.mixer[i].route || { master: true, sends: [] };
+      const key = JSON.stringify(r);
+      if (key === ins.routeKey) {
+        (ins.sendNodes || []).forEach((n, k) => setP(g.ctx, n.gain, r.sends[k].level));
+        continue;
+      }
+      try { ins.meter.disconnect(); } catch { /* */ }
+      (ins.sendNodes || []).forEach((n) => { try { n.disconnect(); } catch { /* */ } });
+      if (r.master) ins.meter.connect(g.inserts[0].input);
+      ins.sendNodes = r.sends.map((s) => {
+        const n = g.ctx.createGain();
+        n.gain.value = s.level;
+        ins.meter.connect(n).connect(g.inserts[s.to].input);
+        return n;
+      });
+      ins.routeKey = key;
+    }
   }
 
   function chanStrip(g, ch) {
@@ -104,6 +173,7 @@
       setP(ctx, ins.pan.pan, m.pan);
       syncFx(g, ins, m, p.bpm);
     });
+    syncRoutes(g, p);
     const live = new Set();
     p.channels.forEach((ch) => {
       live.add(ch.id);

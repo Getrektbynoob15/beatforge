@@ -24,6 +24,7 @@
       </div>
       <button id="playBtn" class="btn accent play" aria-keyshortcuts="Space" title="Play / Stop (Space)">▶</button>
       <button id="stopBtn" class="btn" title="Stop and go back to the start">■</button>
+      <button id="metBtn" class="btn small icon" aria-pressed="false" title="Metronome (Ctrl+M)" aria-label="Metronome">𝅘𝅥</button>
       <button id="recBtn" class="btn rec" aria-pressed="false" title="Record notes from your MIDI or typing keyboard into the current pattern (R)" aria-label="Record">●</button>
       <label class="field bpm-field" title="Tempo (beats per minute)"><span class="fl">BPM</span>
         <input id="bpm" type="number" min="40" max="300" step="0.1" value="130" aria-label="Tempo in beats per minute">
@@ -62,7 +63,7 @@
     <div class="dlg-actions"><button id="updateLater" class="btn">Later</button> <button id="updateGo" class="btn accent">Update now</button></div>
   </dialog>
   <dialog id="helpDlg" class="dlg" aria-labelledby="helpTitle">
-    <h2 id="helpTitle">Keyboard shortcuts</h2>
+    <h2 id="helpTitle">Keyboard shortcuts (F1)</h2>
     <div id="helpBody"></div>
     <form method="dialog"><button class="btn accent">Close</button></form>
   </dialog>
@@ -72,6 +73,8 @@
   <script src="js/synth.js"></script>
   <script src="js/plugins/instruments.js"></script>
   <script src="js/plugins/effects.js"></script>
+  <script src="js/plugins/effects2.js"></script>
+  <script src="js/plugins/instruments2.js"></script>
   <script src="js/state.js"></script>
   <script src="js/wav.js"></script>
   <script src="js/stretch.js"></script>
@@ -89,7 +92,9 @@
   <script src="js/browser.js"></script>
   <script src="js/automation.js"></script>
   <script src="js/midi.js"></script>
+  <script src="js/recorder.js"></script>
   <script src="js/io.js"></script>
+  <script src="js/shortcuts.js"></script>
   <script src="app.js"></script>
   <script src="js/desktop.js"></script>
 </body>

@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const BF = window.BF;
-  const B = (BF.browser = { open: true, collapsed: new Set(['Project · Channels']) });
+  const B = (BF.browser = { open: true, collapsed: new Set(['Project · Channels', 'Instruments · Organ', 'Packs · Lo-fi kit', 'Packs · Rock kit', 'Packs · House kit']) });
   let root, list, search;
   const MIME = 'application/x-beatforge';
 
@@ -48,16 +48,33 @@
       use: () => BF.rack.addChannel('drum', { sound: id }, label),
       preview: () => BF.audio.previewNote({ plugin: 'drum', params: BF.plugins.defaults('drum', { sound: id }), volume: 0.8, pan: 0, pitch: 0, insert: 0 }, 60, 0.9, 0.3),
     })) });
-    out.push({ name: 'Instruments · Synth presets', items: Object.keys(synth.presets).map((n) => ({
-      label: n, hint: `Forge Synth preset "${n}". Click to hear it, double-click to add a channel, or drag it onto the channel rack.`, useLabel: 'Add as channel', icon: '🎹',
-      drag: { kind: 'instrument', plugin: 'synth', preset: n, name: n },
-      use: () => BF.rack.addChannel('synth', n, n === 'Init' ? 'Forge Synth' : n),
-      preview: () => {
-        const ch = { plugin: 'synth', params: BF.plugins.defaults('synth', n), volume: 0.8, pan: 0, pitch: 0, insert: 0 };
-        const low = /bass|808/i.test(n);
-        (low ? [36, 36, 43, 39] : [60, 64, 67, 72]).forEach((k, i) => setTimeout(() => BF.audio.previewNote(ch, k, 0.85, 0.22), i * 170));
-      },
-    })) });
+    const previewChord = (plugin, preset, name) => () => {
+      const ch = { plugin, params: BF.plugins.defaults(plugin, preset), volume: 0.8, pan: 0, pitch: 0, insert: 0 };
+      const low = /bass|808/i.test(name);
+      (low ? [36, 36, 43, 39] : [60, 64, 67, 72]).forEach((k, i) => setTimeout(() => BF.audio.previewNote(ch, k, 0.85, 0.22), i * 170));
+    };
+    ['synth', 'fm', 'pluck', 'organ'].forEach((pid) => {
+      const def = BF.plugins.get(pid);
+      out.push({ name: `Instruments · ${def.name}`, items: Object.keys(def.presets).map((n) => ({
+        label: n, hint: `${def.name} "${n}". Click to hear it, double-click to add a channel, or drag it onto the channel rack.`, icon: '🎹', useLabel: 'Add as channel',
+        drag: { kind: 'instrument', plugin: pid, preset: n, name: n === 'Init' ? def.name : n },
+        use: () => BF.rack.addChannel(pid, n, n === 'Init' ? def.name : n),
+        preview: previewChord(pid, n, n),
+      })) });
+    });
+    Object.entries(BF.KITS).forEach(([kit, sounds]) => {
+      const opts = new Map(drum.params[0].options);
+      out.push({ name: `Packs · ${kit}`, items: [
+        { label: `Add the whole ${kit}`, icon: '📦', hint: `Adds every ${kit} sound as its own channel`, use: () => Object.entries(sounds).forEach(([s, o]) => BF.rack.addChannel('drum', { sound: s, ...o }, `${opts.get(s)} (${kit.split(' ')[0]})`)) },
+        ...Object.entries(sounds).map(([s, o]) => ({
+          label: opts.get(s), icon: '🥁', useLabel: 'Add as channel',
+          hint: `${kit}: ${opts.get(s)}. Click to hear it, double-click to add, or drag it onto the channel rack.`,
+          drag: { kind: 'instrument', plugin: 'drum', preset: { sound: s, ...o }, name: `${opts.get(s)} (${kit.split(' ')[0]})` },
+          use: () => BF.rack.addChannel('drum', { sound: s, ...o }, `${opts.get(s)} (${kit.split(' ')[0]})`),
+          preview: () => BF.audio.previewNote({ plugin: 'drum', params: BF.plugins.defaults('drum', { sound: s, ...o }), volume: 0.8, pan: 0, pitch: 0, insert: 0 }, 60, 0.9, 0.3),
+        })),
+      ] });
+    });
     out.push({ name: 'Instruments · Other', items: [{
       label: 'Sampler (load audio…)', hint: 'Make a Sampler channel from an audio file', icon: '🎚',
       use: () => BF.io.pickFiles((f) => BF.io.importToRack(f)),

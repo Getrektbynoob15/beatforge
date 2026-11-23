@@ -33,28 +33,35 @@ arrange them in the **playlist**, and mix in the **mixer**. Everything opens as 
   *Fit to tempo* (follows the project BPM; *Guess BPM* works out the loop's tempo), speed, pitch and gain.
   **Shift + drag a clip's edge** to stretch it to any length.
 - **Mixer (F9):** Master + 16 inserts with meters, faders, pan, mute and solo. Click a strip to see its effect slots
-  (up to 10): Forge EQ, Forge Filter, Echo Delay, Room Reverb, Compressor, Drive, Chorus, Limiter, Utility.
+  (up to 10) and its routing: to Master and/or sends to other inserts (feedback loops are blocked).
+  Effects: Forge EQ, Forge Filter, Echo Delay, Room Reverb, Compressor, Drive, Chorus, Limiter, Utility, Sidechain Ducker,
+  Phaser, Flanger, Stereo Width, Volume Shaper.
+- **Instruments:** Drum Kit (11 sounds, 4 kits), Forge Synth, FM Keys, String Pluck, Organ, Sampler.
+- **Automation:** right-click any knob or fader → *Create automation clip*.
+- **Recording (R):** notes from a MIDI or typing keyboard, and audio from a microphone (Settings, F10). Metronome: Ctrl+M.
+- **Loop region:** drag on the playlist ruler; Song mode loops inside it.
 - **Pattern / Song (L):** Pattern mode loops the current pattern; Song mode plays the playlist.
 - **File menu:** save/open projects (one `.beatforge.json` with all audio inside), export the song, the current pattern,
   or stems (one WAV per mixer insert). BeatForge 1 projects open and are converted automatically.
 
+### Keyboard shortcuts (press F1 in the app for the full list)
+
 | Shortcut | Action |
 |---|---|
-| Space | Play / pause |
-| L | Pattern / Song mode |
-| F5 · F6 · F7 · F8 · F9 | Playlist · Channel rack · Piano roll · Browser · Mixer |
-| Numpad + / − | Next / previous pattern |
+| Space · Ctrl+Space | Start/stop · start/pause |
+| L · R · Ctrl+M · Ctrl+H | Pattern/Song · record · metronome · stop all sound |
+| F5 · F6 · F7 · F8 · Alt+F8 · F9 | Playlist · Channel rack · Piano roll · Plugin picker · Browser · Mixer |
+| F10 · F11 · F12 · Tab | Settings · Project info · Close all windows · Next window |
+| Numpad + / − · F4 | Next / previous pattern · next empty pattern |
 | Ctrl+N · Ctrl+O · Ctrl+S · Ctrl+Shift+S | New · Open · Save · Save as |
-| Ctrl+R | Export WAV |
-| Ctrl+Z (or Ctrl+Alt+Z) · Ctrl+Shift+Z (or Ctrl+Y) | Undo (100 steps) · Redo |
-| P · B · D · E · C | Draw · Paint · Delete · Select · Slice tools |
-| Right-click | Delete a note, clip or step |
-| Ctrl+A · Ctrl+D · Ctrl+C · Ctrl+X · Ctrl+V | Select all · none · copy · cut · paste (piano roll) |
-| ↑ ↓ / Ctrl+↑ ↓ | Transpose a semitone / an octave |
-| Ctrl+Q | Quantize notes |
-| Ctrl+wheel | Zoom |
-| Double-click a knob | Reset it |
-| F1 | Shortcut list |
+| Ctrl+R · Ctrl+Shift+M | Export WAV · Export MIDI |
+| Ctrl+Z · Ctrl+Alt+Z · Ctrl+Shift+Z | Undo/redo toggle · undo step · redo step |
+| F2 · Ctrl+T · Ctrl+F | Rename · typing keyboard · search the browser |
+| Ctrl+L | Channel rack: route channel to a free insert · Piano roll: quick legato |
+| P · B · D · T · C · E | Draw · Paint · Delete · Mute · Slice · Select tools |
+| Alt+A · Alt+S · Alt+R · Alt+U · Alt+G · Alt+Q · Alt+Y | Arpeggiate · strum · randomize · chop · glue · quantize · flip |
+| Ctrl+B · Ctrl+Q | Duplicate selection · quick quantize |
+| Ctrl+Insert · Ctrl+Delete | Insert / delete time at the loop region |
 
 ## Plugins
 
@@ -75,7 +82,7 @@ Build the desktop apps with `./build.sh` (needs the official Electron 33.2.1 zip
 
 ## Known limitations
 
-- No VST/AU plugins (see above), no audio recording, no automation clips and no MIDI keyboard input yet.
+- No VST/AU plugins (see above). No MP3 export yet (WAV, stems and MIDI only).
 - Desktop builds are not code-signed, so Windows may warn on first start. No macOS build yet.
 - Slicing works on pattern clips only; audio clips can be trimmed from the right edge.
 - Time stretch is a simple WSOLA: great for loops and vocals, it can smear sharp drum hits at extreme speeds.

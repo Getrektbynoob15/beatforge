@@ -48,7 +48,7 @@
     return { id: BF.uid('p'), name: `Pattern ${n}`, color: BF.PATTERN_COLORS[(n - 1) % BF.PATTERN_COLORS.length], length: 16, steps: {}, notes: {} };
   };
 
-  BF.newInsert = (i) => ({ id: BF.uid('m'), name: i === 0 ? 'Master' : `Insert ${i}`, volume: i === 0 ? 0.8 : 0.8, pan: 0, mute: false, solo: false, fx: [] });
+  BF.newInsert = (i) => ({ id: BF.uid('m'), name: i === 0 ? 'Master' : `Insert ${i}`, volume: 0.8, pan: 0, mute: false, solo: false, ...(i ? { route: { master: true, sends: [] } } : {}), fx: [] });
 
   BF.newProject = function (withDemo = true) {
     const drums = [['Kick', 'kick'], ['Clap', 'clap'], ['Hat', 'hihat'], ['Snare', 'snare']];
@@ -163,6 +163,7 @@
           len: clamp(n.len, 0.05, 4096, 1),
           key: Math.round(clamp(n.key, 0, 127, 60)),
           vel: clamp(n.vel, 0, 1, 0.8),
+          ...(n.mute ? { mute: true } : {}),
         }));
       }
       return { id: str(pt.id, BF.uid('p')), name: str(pt.name, `Pattern ${i + 1}`), color: /^#[0-9a-f]{6}$/i.test(pt.color) ? pt.color : BF.PATTERN_COLORS[i % 8], length, steps, notes };
@@ -184,6 +185,12 @@
         pan: clamp(m.pan, -1, 1, 0),
         mute: !!m.mute,
         solo: !!m.solo,
+        route: i === 0 ? undefined : {
+          master: m.route ? m.route.master !== false : true,
+          sends: (m.route && Array.isArray(m.route.sends) ? m.route.sends : [])
+            .filter((s) => s && Number.isInteger(s.to) && s.to >= 1 && s.to <= BF.INSERTS && s.to !== i)
+            .slice(0, 16).map((s) => ({ to: s.to, level: clamp(s.level, 0, 1.25, 1) })),
+        },
         fx: (Array.isArray(m.fx) ? m.fx : []).slice(0, 10).filter((f) => f && BF.plugins.has(f.plugin) && BF.plugins.get(f.plugin).kind === 'effect')
           .map((f) => ({ id: str(f.id, BF.uid('fx')), plugin: f.plugin, params: BF.plugins.sanitize(f.plugin, f.params), bypass: !!f.bypass })),
       };
@@ -206,6 +213,7 @@
     })).filter((c) => c.points.length && BF.auto.describe(c.target, p));
     p.clips = (Array.isArray(raw.clips) ? raw.clips : []).slice(0, 20000).filter((c) => c && c.kind !== 'auto' && (c.kind === 'pattern' ? patIds.has(c.patternId) : p.samples[c.sampleId])).map((c) => ({
       id: str(c.id, BF.uid('c')),
+      ...(c.muted ? { muted: true } : {}),
       kind: c.kind === 'pattern' ? 'pattern' : 'audio',
       track: Math.round(clamp(c.track, 0, BF.TRACKS - 1, 0)),
       start: clamp(c.start, 0, 4096, 0),

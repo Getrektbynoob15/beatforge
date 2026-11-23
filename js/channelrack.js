@@ -36,8 +36,11 @@
 
   function addMenu() {
     const items = BF.plugins.list('instrument').filter((d) => d.id !== 'sampler').map((d) => ({ label: d.name, action: () => addChannel(d.id) }));
-    const synth = BF.plugins.get('synth');
-    Object.keys(synth.presets).filter((n) => n !== 'Init').forEach((n) => items.push({ label: `Forge Synth: ${n}`, action: () => addChannel('synth', n, n) }));
+    ['synth', 'fm', 'pluck', 'organ'].forEach((pid) => {
+      const def = BF.plugins.get(pid);
+      items.push('-');
+      Object.keys(def.presets).filter((n) => n !== 'Init').forEach((n) => items.push({ label: `${def.name}: ${n}`, action: () => addChannel(pid, n, n) }));
+    });
     items.push('-', { label: 'Sampler (from audio file)…', action: () => BF.io.pickFiles((files) => BF.io.importToRack(files)) });
     return items;
   }

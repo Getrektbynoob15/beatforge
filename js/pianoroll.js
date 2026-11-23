@@ -15,7 +15,14 @@
   let sx = 0; // scroll x in px
   let sy = (127 - 84) * ROW; // scroll y: show around C6 at top
   let lastLen = 2; // steps
-  let root, cv, g, toolbar, chanSel, snapSel;
+  let root, cv, g, toolbar, chanSel, snapSel, stampSel, keySel, scaleSel;
+  const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const CHORDS = { Major: [0, 4, 7], Minor: [0, 3, 7], '7th': [0, 4, 7, 10], 'Major 7th': [0, 4, 7, 11], 'Minor 7th': [0, 3, 7, 10], 'Sus2': [0, 2, 7], 'Sus4': [0, 5, 7], Diminished: [0, 3, 6], Augmented: [0, 4, 8], 'Power (5th)': [0, 7, 12], 'Add9': [0, 4, 7, 14], 'Minor 9th': [0, 3, 7, 10, 14] };
+  const SCALES = { Major: [0, 2, 4, 5, 7, 9, 11], Minor: [0, 2, 3, 5, 7, 8, 10], 'Harmonic minor': [0, 2, 3, 5, 7, 8, 11], Dorian: [0, 2, 3, 5, 7, 9, 10], Phrygian: [0, 1, 3, 5, 7, 8, 10], Mixolydian: [0, 2, 4, 5, 7, 9, 10], 'Pentatonic major': [0, 2, 4, 7, 9], 'Pentatonic minor': [0, 3, 5, 7, 10], Blues: [0, 3, 5, 6, 7, 10] };
+  PR.stamp = null;
+  PR.scale = null;
+  const inScale = (k) => !PR.scale || SCALES[PR.scale.name].includes(((k - PR.scale.root) % 12 + 12) % 12);
+  const toScale = (k) => { if (!PR.scale) return k; for (let d = 0; d < 12; d++) { if (inScale(k - d)) return k - d; if (inScale(k + d)) return k + d; } return k; };
   let clipboard = null;
   let drag = null;
   let hover = null;
@@ -29,7 +36,7 @@
     chanSel = document.createElement('select');
     chanSel.setAttribute('aria-label', 'Channel to edit');
     chanSel.addEventListener('change', () => BF.setView((p) => { p.selectedChannel = chanSel.value; PR.sel.clear(); }, 'select'));
-    const tools = [['draw', '✎ Draw', 'P'], ['paint', '🖌 Paint', 'B'], ['delete', '⌫ Delete', 'D'], ['select', '⬚ Select', 'E']];
+    const tools = [['draw', '✎ Draw', 'P'], ['paint', '🖌 Paint', 'B'], ['delete', '⌫ Delete', 'D'], ['mute', '🔇 Mute', 'T'], ['slice', '✂ Slice', 'C'], ['select', '⬚ Select', 'E']];
     const toolBtns = tools.map(([id, label, key]) => {
       const b = document.createElement('button');
       b.className = 'btn small tool';
@@ -55,7 +62,29 @@
     const zout = document.createElement('button'); zout.className = 'btn small'; zout.textContent = '−'; zout.title = 'Zoom out'; zout.setAttribute('aria-label', 'Zoom out');
     zin.addEventListener('click', () => setZoom(zoom * 1.25));
     zout.addEventListener('click', () => setZoom(zoom / 1.25));
-    toolbar.append(chanSel, ...toolBtns, snapSel, zout, zin, typing);
+    stampSel = document.createElement('select');
+    stampSel.setAttribute('aria-label', 'Stamp: place a whole chord with one click');
+    stampSel.title = 'Stamp: click places a whole chord';
+    stampSel.add(new Option('Stamp: off', ''));
+    Object.keys(CHORDS).forEach((n) => stampSel.add(new Option(`Stamp: ${n}`, n)));
+    stampSel.addEventListener('change', () => { PR.stamp = stampSel.value || null; });
+    keySel = document.createElement('select');
+    keySel.setAttribute('aria-label', 'Scale root');
+    NOTE_NAMES.forEach((n, i) => keySel.add(new Option(n, i)));
+    scaleSel = document.createElement('select');
+    scaleSel.setAttribute('aria-label', 'Scale highlighting');
+    scaleSel.title = 'Highlight the notes of a scale (and snap new notes to it)';
+    scaleSel.add(new Option('Scale: none', ''));
+    Object.keys(SCALES).forEach((n) => scaleSel.add(new Option(`Scale: ${n}`, n)));
+    const onScale = () => { PR.scale = scaleSel.value ? { root: +keySel.value, name: scaleSel.value } : null; draw(); };
+    keySel.addEventListener('change', onScale);
+    scaleSel.addEventListener('change', onScale);
+    const toolsBtn = document.createElement('button');
+    toolsBtn.className = 'btn small';
+    toolsBtn.textContent = 'Tools ▾';
+    toolsBtn.title = 'Note tools (work on the selected notes, or all notes when nothing is selected)';
+    toolsBtn.addEventListener('click', () => BF.ui.menuAt(toolsBtn, PR.toolsMenu()));
+    toolbar.append(chanSel, ...toolBtns, snapSel, stampSel, keySel, scaleSel, toolsBtn, zout, zin, typing);
     cv = document.createElement('canvas');
     cv.className = 'pr-canvas';
     cv.tabIndex = 0;
@@ -145,6 +174,22 @@
       if (!e.shiftKey) PR.sel.clear();
       return bindDrag();
     }
+    if (PR.tool === 'mute') {
+      if (h.note) { const id = h.note.id; edit((arr) => { const n = arr.find((x) => x.id === id); if (n) n.mute = !n.mute; }, key); }
+      return;
+    }
+    if (PR.tool === 'slice') {
+      if (h.note) {
+        const id = h.note.id, at = snapStep(h.s);
+        edit((arr) => {
+          const n = arr.find((x) => x.id === id);
+          if (!n || at <= n.start + 0.01 || at >= n.start + n.len - 0.01) return;
+          arr.push({ ...n, id: BF.uid('n'), start: at, len: n.start + n.len - at });
+          n.len = at - n.start;
+        }, key);
+      }
+      return;
+    }
     if (h.note) {
       if (!PR.sel.has(h.note.id)) { PR.sel.clear(); PR.sel.add(h.note.id); }
       lastLen = h.note.len;
@@ -164,7 +209,15 @@
     }
     // empty grid: add a note
     const start = snapStep(h.s, 'floor');
-    const n = newNote(start, h.k);
+    const root = toScale(h.k);
+    if (PR.stamp) {
+      const chord = CHORDS[PR.stamp].map((iv) => newNote(start, PR.scale ? toScale(root + iv) : root + iv));
+      edit((arr) => arr.push(...chord), key);
+      PR.sel = new Set(chord.map((x) => x.id));
+      chord.forEach((x) => BF.audio.previewNote(c, x.key, 0.7, 0.4));
+      return bindDrag();
+    }
+    const n = newNote(start, root);
     edit((arr) => arr.push(n), key);
     PR.sel = new Set([n.id]);
     BF.audio.previewNote(c, n.key, n.vel, 0.25);
@@ -248,6 +301,12 @@
     const k = e.key;
     const selected = () => notes().filter((n) => PR.sel.has(n.id));
     const shift = (fn) => { if (!PR.sel.size) return; e.preventDefault(); e.stopPropagation(); edit((arr) => arr.forEach((n) => { if (PR.sel.has(n.id)) fn(n); }), `prk-${k}`); };
+    if (e.altKey && !mod) {
+      const op = { a: 'arp', s: 'strum', r: 'random', u: 'chop', g: 'glue', q: 'quantize', y: 'flip' }[k.toLowerCase()];
+      if (op) { e.preventDefault(); e.stopPropagation(); PR.op(op); return; }
+    }
+    if (mod && k.toLowerCase() === 'l') { e.preventDefault(); e.stopPropagation(); PR.op('legato'); return; }
+    if (mod && k.toLowerCase() === 'b') { e.preventDefault(); e.stopPropagation(); PR.op('duplicate'); return; }
     if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); e.stopPropagation(); const ids = new Set(PR.sel); PR.sel.clear(); edit((arr) => { for (let i = arr.length - 1; i >= 0; i--) if (ids.has(arr[i].id)) arr.splice(i, 1); }); }
     else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); e.stopPropagation(); PR.sel = new Set(notes().map((n) => n.id)); draw(); }
     else if (mod && k.toLowerCase() === 'd') { e.preventDefault(); e.stopPropagation(); PR.sel.clear(); draw(); }
@@ -279,10 +338,94 @@
     else if (k === 'ArrowLeft') shift((n) => { n.start = Math.max(0, n.start - (PR.snap || 1)); });
     else if (k === 'ArrowRight') shift((n) => { n.start += PR.snap || 1; });
     else if (!mod && !PR.typing) {
-      const t = { p: 'draw', b: 'paint', d: 'delete', e: 'select' }[k.toLowerCase()];
+      const t = { p: 'draw', b: 'paint', d: 'delete', e: 'select', t: 'mute', c: 'slice' }[k.toLowerCase()];
       if (t) { e.preventDefault(); e.stopPropagation(); PR.setTool(t); }
     }
   }
+
+  // ---------- note tools (FL-style names and Alt shortcuts) ----------
+  PR.toolsMenu = () => [
+    { label: 'Quick legato', hint: 'Ctrl+L', action: () => PR.op('legato') },
+    { label: 'Arpeggiate (up)', hint: 'Alt+A', action: () => PR.op('arp', 'up') },
+    { label: 'Arpeggiate (down)', action: () => PR.op('arp', 'down') },
+    { label: 'Arpeggiate (up and down)', action: () => PR.op('arp', 'updown') },
+    { label: 'Strum', hint: 'Alt+S', action: () => PR.op('strum') },
+    { label: 'Randomize velocity and timing', hint: 'Alt+R', action: () => PR.op('random') },
+    { label: 'Chop to the snap', hint: 'Alt+U', action: () => PR.op('chop') },
+    { label: 'Glue touching notes', hint: 'Alt+G', action: () => PR.op('glue') },
+    { label: 'Quantize starts and ends', hint: 'Alt+Q', action: () => PR.op('quantize') },
+    { label: 'Flip horizontally', hint: 'Alt+Y', action: () => PR.op('flip') },
+    { label: 'Duplicate after selection', hint: 'Ctrl+B', action: () => PR.op('duplicate') },
+    '-',
+    { label: 'Velocity: all 100%', action: () => PR.op('vel', 1) },
+    { label: 'Velocity: fade in', action: () => PR.op('velramp', 1) },
+    { label: 'Velocity: fade out', action: () => PR.op('velramp', -1) },
+    { label: 'Transpose up an octave', hint: 'Ctrl+↑', action: () => PR.op('transpose', 12) },
+    { label: 'Transpose down an octave', hint: 'Ctrl+↓', action: () => PR.op('transpose', -12) },
+    { label: 'Unmute all notes', action: () => PR.op('unmute') },
+  ];
+
+  /** Run a note tool on the selected notes (or every note when nothing is selected). */
+  PR.op = function (op, arg) {
+    const all = !PR.sel.size;
+    const step = PR.snap || 1;
+    let made = null;
+    edit((arr, pt) => {
+      const pick = arr.filter((n) => all || PR.sel.has(n.id)).sort((a, b) => a.start - b.start || a.key - b.key);
+      if (!pick.length) return;
+      const ids = new Set(pick.map((n) => n.id));
+      if (op === 'legato') {
+        const starts = [...new Set(arr.map((n) => n.start))].sort((a, b) => a - b);
+        pick.forEach((n) => { const next = starts.find((s) => s > n.start + 1e-6); n.len = Math.max(0.1, (next ?? pt.length) - n.start); });
+      } else if (op === 'strum') {
+        const groups = new Map();
+        pick.forEach((n) => { const k = Math.round(n.start * 100); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(n); });
+        groups.forEach((g) => g.sort((a, b) => a.key - b.key).forEach((n, i) => { n.start += i * 0.25; n.len = Math.max(0.1, n.len - i * 0.25); }));
+      } else if (op === 'arp') {
+        const dir = arg || 'up';
+        const groups = new Map();
+        pick.forEach((n) => { const k = Math.round(n.start * 100); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(n); });
+        const add = [];
+        groups.forEach((g) => {
+          const keys = g.map((n) => n.key).sort((a, b) => a - b);
+          const seq = dir === 'down' ? keys.slice().reverse() : dir === 'updown' ? [...keys, ...keys.slice(1, -1).reverse()] : keys;
+          const startAt = g[0].start, end = Math.max(...g.map((n) => n.start + n.len));
+          for (let s = startAt, i = 0; s < end - 1e-6; s += step, i++) add.push({ id: BF.uid('n'), start: s, len: Math.min(step, end - s), key: seq[i % seq.length], vel: g[0].vel });
+        });
+        for (let i = arr.length - 1; i >= 0; i--) if (ids.has(arr[i].id)) arr.splice(i, 1);
+        arr.push(...add);
+        made = add;
+      } else if (op === 'random') {
+        pick.forEach((n) => { n.vel = BF.clamp(n.vel + (Math.random() - 0.5) * 0.3, 0.05, 1, 0.8); n.start = Math.max(0, n.start + (Math.random() - 0.5) * 0.12); });
+      } else if (op === 'chop') {
+        const add = [];
+        pick.forEach((n) => { for (let s = n.start + step; s < n.start + n.len - 1e-6; s += step) add.push({ ...n, id: BF.uid('n'), start: s, len: Math.min(step, n.start + n.len - s) }); n.len = Math.min(n.len, step); });
+        arr.push(...add);
+      } else if (op === 'glue') {
+        const byKey = new Map();
+        pick.forEach((n) => { if (!byKey.has(n.key)) byKey.set(n.key, []); byKey.get(n.key).push(n); });
+        const drop = new Set();
+        byKey.forEach((list) => { list.sort((a, b) => a.start - b.start); for (let i = 1; i < list.length; i++) { const a = list.slice(0, i).reverse().find((x) => !drop.has(x.id)); const b = list[i]; if (a && b.start <= a.start + a.len + 0.01) { a.len = Math.max(a.len, b.start + b.len - a.start); drop.add(b.id); } } });
+        for (let i = arr.length - 1; i >= 0; i--) if (drop.has(arr[i].id)) arr.splice(i, 1);
+      } else if (op === 'quantize') {
+        pick.forEach((n) => { const s = Math.round(n.start / step) * step; const e2 = Math.max(s + step, Math.round((n.start + n.len) / step) * step); n.start = s; n.len = e2 - s; });
+      } else if (op === 'flip') {
+        const min = Math.min(...pick.map((n) => n.start)), max = Math.max(...pick.map((n) => n.start + n.len));
+        pick.forEach((n) => { n.start = min + (max - (n.start + n.len)); });
+      } else if (op === 'duplicate') {
+        const min = Math.min(...pick.map((n) => n.start)), max = Math.max(...pick.map((n) => n.start + n.len));
+        const span = Math.ceil((max - min) / step - 1e-6) * step;
+        const add = pick.map((n) => ({ ...n, id: BF.uid('n'), start: n.start + span }));
+        arr.push(...add);
+        made = add;
+      } else if (op === 'vel') pick.forEach((n) => { n.vel = arg; });
+      else if (op === 'velramp') pick.forEach((n, i) => { const f = pick.length > 1 ? i / (pick.length - 1) : 1; n.vel = 0.2 + 0.8 * (arg > 0 ? f : 1 - f); });
+      else if (op === 'transpose') pick.forEach((n) => { n.key = Math.min(127, Math.max(0, n.key + arg)); });
+      else if (op === 'unmute') arr.forEach((n) => { delete n.mute; });
+    });
+    if (made) PR.sel = new Set(made.map((n) => n.id));
+    draw();
+  };
 
   // ---------- typing keyboard (notes go through BF.live, so they have a real note-off and can be recorded) ----------
   function typingKey(e) {
@@ -333,7 +476,7 @@
     for (let k = 127; k >= 0; k--) {
       const y = yOf(k);
       if (y > RULER + gridH || y + ROW < RULER) continue;
-      g.fillStyle = isBlack(k) ? '#161a21' : '#1b1f27';
+      g.fillStyle = PR.scale ? (inScale(k) ? (((k - PR.scale.root) % 12 + 12) % 12 === 0 ? '#22303a' : '#1d242d') : '#121419') : isBlack(k) ? '#161a21' : '#1b1f27';
       g.fillRect(KEYW, y, w - KEYW, ROW);
       if (k % 12 === 0) { g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(KEYW, y + ROW - 1, w - KEYW, 1); }
     }
@@ -359,7 +502,7 @@
       const x = xOf(n.start), y = yOf(n.key), nw = Math.max(3, n.len * zoom - 1);
       const sel = PR.sel.has(n.id);
       g.globalAlpha = 0.45 + n.vel * 0.55;
-      g.fillStyle = sel ? '#ffffff' : accent;
+      g.fillStyle = sel ? '#ffffff' : n.mute ? '#5b6270' : accent;
       g.fillRect(x, y + 1, nw, ROW - 2);
       g.globalAlpha = 1;
       g.fillStyle = 'rgba(0,0,0,.35)';

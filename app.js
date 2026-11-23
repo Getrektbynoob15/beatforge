@@ -31,6 +31,7 @@
   W.create({ id: 'piano', title: 'Piano roll', body: BF.piano.build(), rect: { x: 0.06, y: 0.04, w: 0.88, h: 0.7 }, open: false, hotkey: 'F7', onShow: () => { BF.piano.sync(); BF.piano.reveal(); } });
   W.create({ id: 'mixer', title: 'Mixer', body: BF.mixer.build(), rect: { x: 0.02, y: 0.4, w: 0.96, h: 0.58 }, open: false, hotkey: 'F9', onShow: () => BF.mixer.render() });
   W.create({ id: 'editor', title: 'Plugin', body: BF.editor.build(), rect: { x: 0.5, y: 0.06, w: 0.46, h: 0.56 }, open: false, onShow: () => BF.editor.render() });
+  W.create({ id: 'picker', title: 'Plugin picker', body: BF.keys.buildPicker(), rect: { x: 0.25, y: 0.1, w: 0.5, h: 0.6 }, open: false, hotkey: 'F8' });
   W.create({ id: 'auto', title: 'Automation', body: BF.auto.build(), rect: { x: 0.1, y: 0.5, w: 0.8, h: 0.42 }, open: false, onShow: () => BF.auto.render() });
   W.front('rack');
   const wsToggle = W.toggle;
@@ -100,6 +101,7 @@
     $('playBtn').setAttribute('aria-label', T.playing ? 'Pause' : 'Play');
     $('playBtn').setAttribute('aria-pressed', String(T.playing));
     $('recBtn').setAttribute('aria-pressed', String(BF.rec.armed));
+    $('metBtn').setAttribute('aria-pressed', String(BF.recorder.metronome));
     [['modePattern', 'pattern'], ['modeSong', 'song']].forEach(([id, m]) => {
       $(id).classList.toggle('on', T.mode === m);
       $(id).setAttribute('aria-checked', String(T.mode === m));
@@ -112,6 +114,7 @@
   // ---------- top bar ----------
   $('playBtn').addEventListener('click', () => BF.transport.toggle());
   $('recBtn').addEventListener('click', () => toggleRec());
+  $('metBtn').addEventListener('click', () => { BF.recorder.metronome = !BF.recorder.metronome; BF.emit('transport'); });
   function toggleRec() {
     BF.rec.armed = !BF.rec.armed;
     if (BF.rec.armed && !BF.piano.typing && !BF.live.devices.length) BF.ui.toast('Record is on. Turn on the typing keyboard (piano roll) or plug in a MIDI keyboard, press Space and play.');
@@ -159,6 +162,7 @@
     '-',
     { label: 'Export song as WAV…', hint: 'Ctrl+R', action: () => BF.io.exportWav('song') },
     { label: 'Export current pattern as WAV…', action: () => BF.io.exportWav('pattern') },
+    { label: 'Export MIDI file…', hint: 'Ctrl+Shift+M', action: () => BF.keys.exportMidi() },
     { label: 'Export stems (one WAV per insert)…', action: () => BF.io.exportStems() },
   ]));
   $('menuEdit').addEventListener('click', (e) => BF.ui.menuAt(e.currentTarget, [
@@ -166,6 +170,9 @@
     { label: 'Redo', hint: 'Ctrl+Shift+Z', disabled: !BF.canRedo(), action: () => BF.redo() },
     '-',
     { label: 'Rename project…', action: () => { const n = BF.ui.prompt('Project name', BF.project.name); if (n) BF.commit((p) => { p.name = n; }); } },
+    { label: 'Settings…', hint: 'F10', action: () => BF.keys.settings() },
+    { label: 'Project info…', hint: 'F11', action: () => BF.keys.projectInfo() },
+    { label: 'Metronome', hint: 'Ctrl+M', checked: BF.recorder.metronome, action: () => { BF.recorder.metronome = !BF.recorder.metronome; BF.emit('transport'); } },
     { label: 'Quantize recorded notes to 1/16', checked: BF.rec.quantize, action: () => { BF.rec.quantize = !BF.rec.quantize; } },
     { label: 'Connect MIDI keyboard', action: () => BF.live.start(true) },
     { label: 'Typing keyboard to piano', checked: BF.piano.typing, action: () => document.querySelector('.piano .pr-tools button[aria-pressed][title*="computer keyboard"]')?.click() },
@@ -177,7 +184,9 @@
     { label: 'Channel rack', hint: 'F6', checked: W.isOpen('rack'), action: () => W.toggle('rack') },
     { label: 'Piano roll', hint: 'F7', checked: W.isOpen('piano'), action: () => W.toggle('piano') },
     { label: 'Mixer', hint: 'F9', checked: W.isOpen('mixer'), action: () => W.toggle('mixer') },
-    { label: 'Browser', hint: 'F8', checked: W.isOpen('browser'), action: () => W.toggle('browser') },
+    { label: 'Browser', hint: 'Alt+F8', checked: W.isOpen('browser'), action: () => W.toggle('browser') },
+    { label: 'Plugin picker', hint: 'F8', checked: W.isOpen('picker'), action: () => W.toggle('picker') },
+    { label: 'Close all windows', hint: 'F12', action: () => [...W.all.keys()].forEach((id) => { if (id !== 'playlist') W.toggle(id, false); }) },
     { label: 'Plugin editor', checked: W.isOpen('editor'), action: () => W.toggle('editor') },
     '-',
     { label: 'Reset window layout', action: () => W.resetLayout() },
@@ -191,49 +200,20 @@
     { label: 'About BeatForge', action: () => BF.ui.toast(`BeatForge ${window.BF_VERSION || ''}${BF.desktop?.info?.updated ? ' (updated)' : ''}: free, open source (MIT). Made by GRBN Studios.`) },
   ]));
 
-  const SHORTCUTS = [
-    ['Space', 'Play / pause'], ['R', 'Record notes (MIDI or typing keyboard)'], ['L', 'Switch Pattern / Song mode'], ['F5 · F6 · F7 · F8 · F9', 'Playlist · Channel rack · Piano roll · Browser · Mixer'],
-    ['Numpad + / −', 'Next / previous pattern'], ['Ctrl+N · Ctrl+O · Ctrl+S', 'New · Open · Save'], ['Ctrl+Shift+S', 'Save as'], ['Ctrl+R', 'Export WAV'],
-    ['Ctrl+Z · Ctrl+Alt+Z', 'Undo'], ['Ctrl+Shift+Z · Ctrl+Y', 'Redo'],
-    ['P · B · D · E · C', 'Draw · Paint · Delete · Select · Slice (playlist / piano roll)'], ['Right-click', 'Delete a note, clip or step'],
-    ['Ctrl+drag', 'Box select'], ['Shift+drag', 'Duplicate while dragging'], ['Shift+drag clip edge', 'Stretch audio clip'],
-    ['Ctrl+A · Ctrl+D', 'Select all · none (piano roll)'], ['Ctrl+C · Ctrl+X · Ctrl+V', 'Copy · cut · paste notes'], ['Ctrl+B', 'Duplicate selected clips'],
-    ['↑ ↓ / Ctrl+↑ ↓', 'Transpose a semitone / an octave'], ['← →', 'Move selection by the snap'], ['Ctrl+Q', 'Quantize notes'],
-    ['Ctrl+wheel', 'Zoom'], ['Double-click a knob', 'Reset it'], ['F1', 'This list'],
-  ];
   function showHelp() {
     const b = $('helpBody');
     b.textContent = '';
-    const tbl = document.createElement('table');
-    SHORTCUTS.forEach(([k, d]) => { const tr = tbl.insertRow(); tr.insertCell().innerHTML = ''; tr.cells[0].append(Object.assign(document.createElement('kbd'), { textContent: k })); tr.insertCell().textContent = d; });
-    b.append(tbl);
+    BF.keys.list.forEach(([group, rows]) => {
+      const h = document.createElement('h3'); h.textContent = group; b.append(h);
+      const tbl = document.createElement('table');
+      rows.forEach(([k, d]) => { const tr = tbl.insertRow(); tr.insertCell().append(Object.assign(document.createElement('kbd'), { textContent: k })); tr.insertCell().textContent = d; });
+      b.append(tbl);
+    });
     $('helpDlg').showModal();
   }
 
-  // ---------- keyboard shortcuts (FL-style) ----------
-  window.addEventListener('keydown', (e) => {
-    const el = document.activeElement;
-    const typing = el && ((el.tagName === 'INPUT' && /^(number|text|search)$/.test(el.type)) || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
-    if ($('helpDlg').open) return;
-    const mod = e.ctrlKey || e.metaKey;
-    const k = e.key.toLowerCase();
-    if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) BF.io.saveAs(); else BF.io.save(); return; }
-    if (mod && k === 'o') { e.preventDefault(); openFile(); return; }
-    if (mod && k === 'n') { e.preventDefault(); newProject(); return; }
-    if (mod && k === 'r') { e.preventDefault(); BF.io.exportWav('song'); return; }
-    if (['F5', 'F6', 'F7', 'F8', 'F9'].includes(e.key)) { e.preventDefault(); W.toggle({ F5: 'playlist', F6: 'rack', F7: 'piano', F8: 'browser', F9: 'mixer' }[e.key]); return; }
-    if (e.key === 'F1') { e.preventDefault(); showHelp(); return; }
-    if (typing) return;
-    if (BF.piano.typing && !mod && BF.piano.typingKey(e, true)) return;
-    if (mod && k === 'z' && e.shiftKey) { e.preventDefault(); BF.redo(); return; }
-    if (mod && k === 'y') { e.preventDefault(); BF.redo(); return; }
-    if (mod && k === 'z') { e.preventDefault(); BF.undo(); return; }
-    if (e.code === 'Space') { e.preventDefault(); BF.transport.toggle(); return; }
-    if (!mod && k === 'r') { e.preventDefault(); toggleRec(); return; }
-    if (!mod && k === 'l') { e.preventDefault(); BF.transport.setMode(BF.transport.mode === 'song' ? 'pattern' : 'song'); return; }
-    if (e.code === 'NumpadAdd' || (e.key === '+' && !mod)) { e.preventDefault(); BF.patterns.step(1); return; }
-    if (e.code === 'NumpadSubtract' || (e.key === '-' && !mod)) { e.preventDefault(); BF.patterns.step(-1); return; }
-  });
+  // ---------- keyboard shortcuts (see js/shortcuts.js) ----------
+  window.addEventListener('keydown', (e) => BF.keys.handle(e, { newProject, openFile, toggleRec, showHelp }));
   // stop Space from also "clicking" a focused button
   window.addEventListener('keyup', (e) => { if (e.code === 'Space' && document.activeElement?.tagName === 'BUTTON') e.preventDefault(); }, true);
 

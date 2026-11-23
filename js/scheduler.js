@@ -28,7 +28,7 @@
       const notes = pt.notes[ch.id];
       if (notes) {
         for (const n of notes) {
-          if (n.start >= pt.length) continue;
+          if (n.start >= pt.length || n.mute) continue;
           const beat = atBeat + n.start / 4 + (Math.round(n.start) === n.start && n.start % 2 ? swing : 0);
           if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
           BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, (n.len / 4) * secPerBeat, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
@@ -48,7 +48,7 @@
       return;
     }
     for (const c of p.clips) {
-      if (p.tracks[c.track]?.mute) continue;
+      if (p.tracks[c.track]?.mute || c.muted) continue;
       if (c.kind === 'pattern') {
         const end = c.start + c.len;
         if (end <= from || c.start >= to) continue;
@@ -84,7 +84,9 @@
   });
 
   const beatTime = (beat) => T.anchorTime + ((beat - T.anchorBeat) * 60) / T.bpm;
-  const loopEnd = () => (T.mode === 'song' ? BF.songEndBeat() : BF.patternBeats(BF.pattern()));
+  const loopEnd = () => (T.mode === 'song' ? (T.loop ? T.loop.end : BF.songEndBeat()) : BF.patternBeats(BF.pattern()));
+  const loopStart = () => (T.mode === 'song' && T.loop ? T.loop.start : 0);
+  T.loop = null; // Song mode loop region { start, end } in beats (drag on the playlist ruler)
 
   T.position = function () {
     if (!T.playing) return T.mode === 'song' ? T.startBeat : 0;
@@ -126,15 +128,16 @@
       const to = Math.min(horizonBeat, end);
       if (to > T.nextBeat) {
         BF.scheduleRange(BF.audio.graph, p, T.nextBeat, to, beatTime, T.mode, T.sources);
+        BF.recorder.bookClicks(BF.audio.graph, T.nextBeat, to, beatTime);
         T.nextBeat = to;
       }
       if (horizonBeat < end) break;
       // loop: beat `end` happens at beatTime(end); continue from 0 there
       const wrapTime = beatTime(end);
       T.prev = { anchorBeat: T.anchorBeat, anchorTime: T.anchorTime, bpm: T.bpm };
-      T.anchorBeat = 0;
+      T.anchorBeat = loopStart();
       T.anchorTime = wrapTime;
-      T.nextBeat = 0;
+      T.nextBeat = T.anchorBeat;
       if (T.sources.length > 200) T.sources = T.sources.slice(-100);
     }
   }
@@ -148,6 +151,7 @@
     T.prev = null;
     T.anchorTime = ctx.currentTime + 0.05;
     let start = T.mode === 'song' ? T.startBeat : 0;
+    if (T.mode === 'song' && T.loop && (start < T.loop.start || start >= T.loop.end)) start = T.loop.start;
     if (start >= loopEnd()) start = T.startBeat = 0;
     T.anchorBeat = start;
     T.nextBeat = start;
@@ -156,6 +160,7 @@
     T.playing = true;
     tick();
     T.timer = setInterval(tick, TICK_MS);
+    BF.recorder.onPlay(start, T.anchorTime);
     BF.emit('transport');
   };
 
@@ -177,6 +182,7 @@
     });
     T.sources.forEach((s) => { try { s.stop(now + 0.02); } catch { /* ended */ } });
     T.sources = [];
+    BF.recorder.onStop();
     // drop booked automation ramps, go back to the static mixer/channel values
     setTimeout(() => BF.audio.sync(BF.audio.graph, BF.project), 20);
     BF.emit('transport');
@@ -200,6 +206,7 @@
     const end = mode === 'song' ? BF.songEndBeat(p) : BF.patternBeats(BF.pattern());
     const total = Math.ceil((((end * 60) / p.bpm) + 2.5) * rate); // tail for reverb/delay/release
     const ctx = new OfflineAudioContext(2, total, rate);
+    await BF.audio.loadWorklets(ctx).catch(() => {});
     const g = BF.audio.buildGraph(ctx);
     BF.audio.sync(g, p);
     const events = new Map(); // render-quantum frame -> [fn]

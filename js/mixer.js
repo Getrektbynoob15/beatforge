@@ -37,7 +37,9 @@
     name.addEventListener('dblclick', () => { const n = BF.ui.prompt('Insert name', m.name); if (n) BF.commit((q) => { q.mixer[i].name = n; }); });
     const fxDot = document.createElement('div');
     fxDot.className = 'mx-fxcount';
-    fxDot.textContent = m.fx.length ? `${m.fx.length} fx` : '';
+    const sends = i > 0 ? (m.route?.sends || []).map((x) => x.to) : [];
+    fxDot.textContent = [m.fx.length ? `${m.fx.length} fx` : '', sends.length ? `→${sends.join(',')}` : '', i > 0 && m.route && !m.route.master ? '⊘M' : ''].filter(Boolean).join(' ');
+    fxDot.title = i > 0 ? `${m.fx.length} effects. Sends to: ${sends.length ? sends.join(', ') : 'none'}. ${m.route && !m.route.master ? 'Not routed to Master.' : 'Routed to Master.'}` : '';
     const pan = BF.ui.knob({ param: { name: 'Pan', min: -1, max: 1, default: 0, fmt: (v) => (Math.abs(v) < 0.01 ? 'C' : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`) }, value: m.pan, compact: true, label: `${m.name} pan`, target: { kind: 'mx', insert: i, field: 'pan' }, onInput: (v) => BF.commit((q) => { q.mixer[i].pan = v; }, `mxpan-${i}`, 'mix') });
     const body = document.createElement('div');
     body.className = 'mx-body';
@@ -130,6 +132,55 @@
     }
   }
 
+  /** Would routing insert `from` into insert `to` create a feedback loop? */
+  M.wouldLoop = function (from, to) {
+    const p = BF.project;
+    const seen = new Set();
+    const walk = (i) => {
+      if (i === from) return true;
+      if (seen.has(i) || i === 0) return false;
+      seen.add(i);
+      return (p.mixer[i].route?.sends || []).some((s) => walk(s.to));
+    };
+    return walk(to);
+  };
+
+  function routing(i) {
+    const p = BF.project, m = p.mixer[i];
+    const box = document.createElement('div');
+    box.className = 'mx-route';
+    const h = document.createElement('div'); h.className = 'mx-slots-h'; h.textContent = 'Routing';
+    box.append(h);
+    if (i === 0) { const t = document.createElement('div'); t.className = 'hint'; t.textContent = 'Master goes to your speakers.'; box.append(t); return box; }
+    const r = m.route;
+    const ml = document.createElement('label'); ml.className = 'route-row';
+    const mc = document.createElement('input'); mc.type = 'checkbox'; mc.checked = r.master;
+    mc.addEventListener('change', () => BF.commit((q) => { q.mixer[i].route.master = mc.checked; }));
+    ml.append(mc, document.createTextNode(' → Master'));
+    box.append(ml);
+    r.sends.forEach((s, k) => {
+      const row = document.createElement('div'); row.className = 'route-row';
+      const lab = document.createElement('span'); lab.textContent = `→ ${p.mixer[s.to].name} (${s.to})`;
+      const lv = BF.ui.knob({ param: { name: 'Send', min: 0, max: 1.25, default: 1, fmt: BF.plugins.util.pct }, value: s.level, compact: true, label: `Send level to ${p.mixer[s.to].name}`, onInput: (v) => BF.commit((q) => { q.mixer[i].route.sends[k].level = v; }, `send-${i}-${k}`, 'mix') });
+      const rm = document.createElement('button'); rm.className = 'btn small icon danger'; rm.textContent = '×'; rm.setAttribute('aria-label', 'Remove send');
+      rm.addEventListener('click', () => BF.commit((q) => { q.mixer[i].route.sends.splice(k, 1); }));
+      row.append(lab, lv.el, rm);
+      box.append(row);
+    });
+    const add = document.createElement('select');
+    add.setAttribute('aria-label', 'Add a send to another insert');
+    add.add(new Option('+ Send to insert…', ''));
+    for (let j = 1; j <= BF.INSERTS; j++) {
+      if (j === i || r.sends.some((s) => s.to === j)) continue;
+      const o = new Option(`${j}. ${p.mixer[j].name}`, j);
+      if (M.wouldLoop(i, j)) { o.disabled = true; o.text += ' (would loop)'; }
+      add.add(o);
+    }
+    add.addEventListener('change', () => { const j = +add.value; if (j) BF.commit((q) => { q.mixer[i].route.sends.push({ to: j, level: 1 }); }); });
+    box.append(add);
+    return box;
+  }
+
   M.render = function () {
     if (!root) return;
     const sl = stripsEl.scrollLeft;
@@ -138,6 +189,7 @@
     for (let i = 0; i <= BF.INSERTS; i++) stripsEl.append(strip(i));
     stripsEl.scrollLeft = sl;
     slots();
+    slotsEl.append(routing(M.selected));
   };
 
   /** Update fader/pan labels after a 'mix' change without rebuilding (so drags continue). */
