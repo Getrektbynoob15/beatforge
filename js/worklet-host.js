@@ -4,7 +4,7 @@
  *    that from a blob URL);
  *  - loaded with audioWorklet.addModule(url) (the website, where the security policy forbids blob scripts),
  *    it registers the processors.
- * Processors: bf-envelope (sidechain ducker), bf-comp (multiband compressor), bf-vst (VST3 instruments), bf-recorder (audio input capture), and the community plugin host
+ * Processors: bf-envelope (sidechain ducker), bf-comp (multiband compressor), bf-vst (VST3 instruments), bf-vstfx (VST3 effects), bf-recorder (audio input capture), and the community plugin host
  * (__bfDefine), which runs approved plugins: their code only ever sees numbers in and numbers out. */
 (function () {
   function audioThread() {
@@ -82,7 +82,7 @@
         super();
         this.N = 32768; this.L = new Float32Array(this.N); this.R = new Float32Array(this.N); this.at = new Float64Array(this.N).fill(-1);
         this.main = null; this.inst = null; this.rendered = -1; this.inflight = 0; this.reqs = new Map(); this.rid = 0;
-        this.block = 256; this.lead = 1536; this.evs = []; this.tempo = 120; this.playing = false; this.alive = true;
+        this.block = 256; this.lead = 1536; this.evs = []; this.pars = []; this.tempo = 120; this.playing = false; this.alive = true;
         this.port.onmessage = (e) => this.msg(e.data);
       }
       msg(d) {
@@ -95,6 +95,7 @@
         } else if (d.type === 'off') this.add({ f: Math.round(d.t * sampleRate), type: 1, key: d.key, vel: 0 });
         else if (d.type === 'stop') { this.evs = []; this.add({ f: Math.max(this.rendered, currentFrame), type: 2, key: 0, vel: 0 }); }
         else if (d.type === 'transport') { this.tempo = d.tempo; this.playing = d.playing; }
+        else if (d.type === 'param') { this.pars.push({ f: Math.round(d.t * sampleRate), id: d.id, v: d.value }); this.pars.sort((a, b) => a.f - b.f); }
         else if (d.type === 'dispose') this.alive = false;
       }
       add(e) { let i = this.evs.length; while (i > 0 && this.evs[i - 1].f > e.f) i--; this.evs.splice(i, 0, e); }
@@ -102,12 +103,15 @@
         const from = this.rendered, n = this.block;
         let k = 0; while (k < this.evs.length && this.evs[k].f < from + n) k++;
         const take = this.evs.splice(0, k);
-        const buf = new ArrayBuffer(16 * take.length), dv = new DataView(buf);
+        let q = 0; while (q < this.pars.length && this.pars[q].f < from + n) q++;
+        const ps = this.pars.splice(0, q);
+        const buf = new ArrayBuffer(16 * take.length + 12 * ps.length), dv = new DataView(buf);
         take.forEach((e, i) => { dv.setInt32(i * 16, Math.max(0, e.f - from), true); dv.setInt32(i * 16 + 4, e.type, true); dv.setInt32(i * 16 + 8, e.key, true); dv.setFloat32(i * 16 + 12, e.vel, true); });
+        ps.forEach((p, i) => { const o = 16 * take.length + 12 * i; dv.setUint32(o, p.id, true); dv.setFloat64(o + 4, p.v, true); });
         const rid = ++this.rid;
         this.reqs.set(rid, from);
         this.inflight++;
-        this.main.postMessage({ type: 'render', rid, inst: this.inst, frames: n, nEv: take.length, events: buf, tempo: this.tempo, playing: this.playing, pos: from });
+        this.main.postMessage({ type: 'render', rid, inst: this.inst, frames: n, nEv: take.length, nPar: ps.length, events: buf, tempo: this.tempo, playing: this.playing, pos: from });
         this.rendered += n;
       }
       reply(d) {
@@ -134,6 +138,68 @@
       }
     }
     registerProcessor('bf-vst', BfVst);
+
+    // ---------- VST3 effect (desktop app): audio goes to the plugin host and comes back a fixed time later ----------
+    // The insert's input is cut into blocks and sent; the processed block is played `delay` frames after it came in.
+    // That fixed delay is the same for every VST effect, and BeatForge delays the other inserts by as much (delay
+    // compensation), so everything stays in time.
+    class BfVstFx extends AudioWorkletProcessor {
+      constructor(o) {
+        super();
+        this.N = 65536; this.L = new Float32Array(this.N); this.R = new Float32Array(this.N); this.at = new Float64Array(this.N).fill(-1);
+        this.B = 256; this.delay = (o.processorOptions && o.processorOptions.delay) || 1536;
+        this.inL = new Float32Array(this.B); this.inR = new Float32Array(this.B); this.fill = 0; this.blockAt = -1;
+        this.main = null; this.inst = null; this.reqs = new Map(); this.rid = 0; this.pars = []; this.tempo = 120; this.playing = false; this.alive = true; this.late = 0;
+        this.port.onmessage = (e) => {
+          const d = e.data;
+          if (d.type === 'port') { this.main = d.port; this.main.onmessage = (m) => this.reply(m.data); }
+          else if (d.type === 'inst') this.inst = d.inst;
+          else if (d.type === 'param') this.pars.push({ f: Math.round(d.t * sampleRate), id: d.id, v: d.value });
+          else if (d.type === 'transport') { this.tempo = d.tempo; this.playing = d.playing; }
+          else if (d.type === 'dispose') this.alive = false;
+        };
+      }
+      send() {
+        const from = this.blockAt, n = this.B;
+        this.pars.sort((a, b) => a.f - b.f);
+        let k = 0; while (k < this.pars.length && this.pars[k].f < from + n) k++;
+        const ps = this.pars.splice(0, k);
+        const buf = new ArrayBuffer(12 * ps.length + 8 * n), dv = new DataView(buf);
+        ps.forEach((p, i) => { dv.setUint32(i * 12, p.id, true); dv.setFloat64(i * 12 + 4, p.v, true); });
+        const f32 = new Float32Array(buf, 12 * ps.length, 2 * n);
+        f32.set(this.inL, 0); f32.set(this.inR, n);
+        const rid = ++this.rid;
+        this.reqs.set(rid, from);
+        this.main.postMessage({ type: 'render', rid, inst: this.inst, frames: n, nEv: 0, nPar: ps.length, events: buf, tempo: this.tempo, playing: this.playing, pos: from });
+      }
+      reply(d) {
+        const from = this.reqs.get(d.rid);
+        if (from == null) return;
+        this.reqs.delete(d.rid);
+        if (!d.audio) return;
+        const n = d.audio.length / 2, at0 = from + this.delay;
+        if (at0 < currentFrame) { this.late++; if (this.late === 1 || this.late % 200 === 0) this.port.postMessage({ type: 'late', n: this.late }); }
+        for (let j = 0; j < n; j++) { const s = (at0 + j) % this.N; this.L[s] = d.audio[j]; this.R[s] = d.audio[n + j]; this.at[s] = at0 + j; }
+      }
+      process(inputs, outputs) {
+        const inp = inputs[0], out = outputs[0], now = currentFrame, len = out[0].length;
+        if (this.main && this.inst) {
+          for (let i = 0; i < len; i++) {
+            if (this.fill === 0) this.blockAt = now + i;
+            this.inL[this.fill] = inp[0] ? inp[0][i] : 0;
+            this.inR[this.fill] = inp[1] ? inp[1][i] : (inp[0] ? inp[0][i] : 0);
+            if (++this.fill === this.B) { this.send(); this.fill = 0; }
+          }
+        }
+        for (let i = 0; i < len; i++) {
+          const pos = now + i, s = pos % this.N, ok = this.at[s] === pos;
+          out[0][i] = ok ? this.L[s] : 0;
+          if (out[1]) out[1][i] = ok ? this.R[s] : 0;
+        }
+        return this.alive;
+      }
+    }
+    registerProcessor('bf-vstfx', BfVstFx);
 
     // ---------- audio input capture ----------
     class BfRecorder extends AudioWorkletProcessor {

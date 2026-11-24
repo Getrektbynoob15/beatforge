@@ -121,9 +121,11 @@
       add.className = 'slot-add';
       add.setAttribute('aria-label', 'Add an effect');
       add.add(new Option('+ Add effect…', ''));
-      BF.plugins.list('effect').forEach((d) => add.add(new Option(d.name, d.id)));
+      BF.plugins.list('effect').filter((d) => !d.vst).forEach((d) => add.add(new Option(d.name, d.id)));
+      if (BF.vst && BF.vst.available()) add.add(new Option('VST effects (OTT, Valhalla…)…', '__vst'));
       add.addEventListener('change', () => {
         if (!add.value) return;
+        if (add.value === '__vst') { add.value = ''; BF.vst.open('effect', i); return; }
         const fx = { id: BF.uid('fx'), plugin: add.value, params: BF.plugins.defaults(add.value), bypass: false };
         BF.commit((q) => { q.mixer[i].fx.push(fx); });
         BF.editor.openEffect(i, fx.id);

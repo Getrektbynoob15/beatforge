@@ -37,7 +37,7 @@
     snapSel.setAttribute('aria-label', 'Snap');
     [[4, 'Snap: bar'], [1, 'Snap: beat'], [0.5, 'Snap: 1/8'], [0.25, 'Snap: step'], [0, 'Snap: none']].forEach(([v, l]) => snapSel.add(new Option(l, v)));
     snapSel.value = '1';
-    snapSel.addEventListener('change', () => { P.snap = +snapSel.value; });
+    snapSel.addEventListener('change', () => { P.snap = +snapSel.value === 4 ? BF.barBeats() : +snapSel.value; }); // 'bar' follows the time signature
     const zout = document.createElement('button'); zout.className = 'btn small'; zout.textContent = '−'; zout.setAttribute('aria-label', 'Zoom out');
     const zin = document.createElement('button'); zin.className = 'btn small'; zin.textContent = '+'; zin.setAttribute('aria-label', 'Zoom in');
     zout.addEventListener('click', () => setZoom(px / 1.25));
@@ -198,11 +198,12 @@
     corner.className = 'pl-corner';
     corner.textContent = 'Click bar to set start';
     ruler.append(corner);
-    const every = px * 4 < 26 ? 4 : px * 4 < 50 ? 2 : 1;
-    for (let b = 0; b < end / 4; b += every) {
+    const bb = BF.barBeats();
+    const every = px * bb < 26 ? 4 : px * bb < 50 ? 2 : 1;
+    for (let b = 0; b < end / bb; b += every) {
       const n = document.createElement('div');
       n.className = 'bar-num';
-      n.style.left = `${HEADW + b * 4 * px}px`;
+      n.style.left = `${HEADW + b * bb * px}px`;
       n.textContent = String(b + 1);
       ruler.append(n);
     }
@@ -269,7 +270,7 @@
       const lane = document.createElement('div');
       lane.className = 'pl-lane' + (t.mute ? ' muted' : '');
       lane.style.width = `${W}px`;
-      lane.style.backgroundSize = `${px * 16}px 100%, ${px * 4}px 100%, ${px}px 100%`;
+      lane.style.backgroundSize = `${px * BF.barBeats() * 4}px 100%, ${px * BF.barBeats()}px 100%, ${px}px 100%`;
       lane.dataset.track = ti;
       lane.addEventListener('pointerdown', laneDown);
       lane.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -345,7 +346,7 @@
     edge.className = 'pclip-edge';
     edge.title = 'Drag to resize. Shift+drag: stretch audio.';
     el.append(edge);
-    el.setAttribute('aria-label', `${{ pattern: 'Pattern', audio: 'Audio', auto: 'Automation' }[c.kind]} clip ${name}, track ${c.track + 1}, bar ${Math.floor(c.start / 4) + 1}. Arrows move, Delete removes, Enter opens.`);
+    el.setAttribute('aria-label', `${{ pattern: 'Pattern', audio: 'Audio', auto: 'Automation' }[c.kind]} clip ${name}, track ${c.track + 1}, bar ${Math.floor(c.start / BF.barBeats() + 1e-9) + 1}. Arrows move, Delete removes, Enter opens.`);
     el.addEventListener('pointerdown', (e) => clipDown(e, c, e.target === edge));
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('dblclick', () => openClip(c));

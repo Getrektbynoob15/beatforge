@@ -67,6 +67,7 @@
       swing: 0,
       masterPitch: 0,
       songBars: 4,
+      timeSig: { num: 4, den: 4 },
       markers: [],
       channels,
       patterns: [p1],
@@ -134,6 +135,7 @@
     p.swing = clamp(raw.swing, 0, 1, 0);
     p.masterPitch = Math.round(clamp(raw.masterPitch, -1200, 1200, 0)); // cents, like a master pitch knob
     p.songBars = Math.round(clamp(raw.songBars, 1, 512, 16));
+    p.timeSig = { num: Math.round(clamp(raw.timeSig && raw.timeSig.num, 1, 16, 4)), den: [2, 4, 8, 16].includes(raw.timeSig && raw.timeSig.den) ? raw.timeSig.den : 4 };
     p.markers = (Array.isArray(raw.markers) ? raw.markers : []).slice(0, 200).filter((m) => m && Number.isFinite(+m.beat))
       .map((m) => ({ beat: clamp(m.beat, 0, 4096, 0), name: str(m.name, 'Marker', 40) })).sort((a, b) => a.beat - b.beat);
 
@@ -149,6 +151,7 @@
     // VST plugins this computer has not found (yet): keep the channel and the plugin's saved state
     (Array.isArray(raw.channels) ? raw.channels : []).forEach((c) => { if (c && typeof c.plugin === 'string' && /^vst:[0-9A-F]{32}$/.test(c.plugin) && !BF.plugins.has(c.plugin)) { if (BF.vst) BF.vst.placeholder(c.plugin, 'instrument', c.vstName || c.name); } });
     (Array.isArray(raw.mixer) ? raw.mixer : []).forEach((m) => m && Array.isArray(m.fx) && m.fx.forEach((f) => f && ensureExt(f.plugin, 'effect')));
+    (Array.isArray(raw.mixer) ? raw.mixer : []).forEach((m) => m && Array.isArray(m.fx) && m.fx.forEach((f) => { if (f && typeof f.plugin === 'string' && /^vst:[0-9A-F]{32}$/.test(f.plugin) && !BF.plugins.has(f.plugin) && BF.vst) BF.vst.placeholder(f.plugin, 'effect', f.vstName); }));
     p.channels = (Array.isArray(raw.channels) ? raw.channels : []).slice(0, 128).filter((c) => c && BF.plugins.has(c.plugin) && BF.plugins.get(c.plugin).kind === 'instrument').map((c) => ({
       id: str(c.id, BF.uid('ch')),
       name: str(c.name, 'Channel'),
@@ -213,7 +216,11 @@
             .slice(0, 16).map((s) => ({ to: s.to, level: clamp(s.level, 0, 1.25, 1) })),
         },
         fx: (Array.isArray(m.fx) ? m.fx : []).slice(0, 10).filter((f) => f && BF.plugins.has(f.plugin) && BF.plugins.get(f.plugin).kind === 'effect')
-          .map((f) => ({ id: str(f.id, BF.uid('fx')), plugin: f.plugin, params: BF.plugins.sanitize(f.plugin, f.params), bypass: !!f.bypass })),
+          .map((f) => ({
+            id: str(f.id, BF.uid('fx')), plugin: f.plugin, params: BF.plugins.sanitize(f.plugin, f.params), bypass: !!f.bypass,
+            ...(/^vst:/.test(f.plugin) && typeof f.vstState === 'string' && f.vstState.length < 32e6 && /^[A-Za-z0-9+/]*={0,2}$/.test(f.vstState) ? { vstState: f.vstState } : {}),
+            ...(/^vst:/.test(f.plugin) ? { vstName: str(f.vstName || (BF.plugins.get(f.plugin) || {}).name, 'VST plugin').replace(/ \(not found\)$/, '') } : {}),
+          })),
       };
     });
     const autoClips = (Array.isArray(raw.clips) ? raw.clips : []).filter((c) => c && c.kind === 'auto' && c.target && Array.isArray(c.points)).slice(0, 2000).map((c) => ({
@@ -223,10 +230,12 @@
       start: clamp(c.start, 0, 4096, 0),
       len: clamp(c.len, 0.25, 4096, 16),
       target: {
-        kind: ['ch', 'chp', 'mx', 'fx'].includes(c.target.kind) ? c.target.kind : 'mx',
+        kind: ['ch', 'chp', 'mx', 'fx', 'vst', 'tempo'].includes(c.target.kind) ? c.target.kind : 'mx',
         ...(typeof c.target.id === 'string' ? { id: c.target.id } : {}),
         ...(typeof c.target.field === 'string' ? { field: c.target.field === 'pan' ? 'pan' : 'volume' } : {}),
         ...(typeof c.target.param === 'string' ? { param: c.target.param } : {}),
+        ...(c.target.kind === 'vst' && Number.isInteger(c.target.param) && c.target.param >= 0 ? { param: c.target.param } : {}),
+        ...(c.target.kind === 'vst' && typeof c.target.label === 'string' ? { label: str(c.target.label, 'VST knob', 60) } : {}),
         ...(Number.isFinite(c.target.insert) ? { insert: Math.round(clamp(c.target.insert, 0, BF.INSERTS, 0)) } : {}),
         ...(typeof c.target.fxId === 'string' ? { fxId: c.target.fxId } : {}),
       },
@@ -286,6 +295,8 @@
   };
 
   BF.onChange = (fn) => listeners.add(fn);
+  /** Beats (quarter notes) per bar from the time signature: 4/4 -> 4, 3/4 -> 3, 6/8 -> 3, 7/8 -> 3.5. */
+  BF.barBeats = (p = BF.project) => (p && p.timeSig ? (p.timeSig.num * 4) / p.timeSig.den : 4);
   function emit(reason) { listeners.forEach((fn) => { try { fn(reason); } catch (e) { console.error(e); } }); }
   BF.emit = emit;
 

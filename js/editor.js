@@ -152,7 +152,7 @@
       const list = info.params.filter((p) => !p.ro && (!q || p.title.toLowerCase().includes(q)));
       list.slice(0, 64).forEach((p) => {
         const fmt = p.steps > 0 ? (v) => String(Math.round(v * p.steps)) : (v) => `${Math.round(v * 100)}%`;
-        const k = BF.ui.knob({ param: { id: `v${p.id}`, name: p.title.slice(0, 24) || `#${p.id}`, min: 0, max: 1, default: p.def, step: p.steps > 0 ? 1 / p.steps : undefined, fmt }, value: p.value, onInput: (v) => { p.value = v; BF.vst.setParam(chId, p.id, v); } });
+        const k = BF.ui.knob({ param: { id: `v${p.id}`, name: p.title.slice(0, 24) || `#${p.id}`, min: 0, max: 1, default: p.def, step: p.steps > 0 ? 1 / p.steps : undefined, fmt }, value: p.value, onInput: (v) => { p.value = v; BF.vst.setParam(chId, p.id, v); }, target: { kind: 'vst', id: chId, param: p.id, label: p.title.slice(0, 60) } });
         vstCtl.set(p.id, k); grid.append(k.el);
       });
       if (list.length > 64) { const m = document.createElement('p'); m.className = 'hint'; m.textContent = `${list.length - 64} more: use the search box${info.editor ? ' or the plugin window' : ''}.`; grid.append(m); }

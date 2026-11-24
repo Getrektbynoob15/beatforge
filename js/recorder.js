@@ -15,9 +15,10 @@
     for (let b = Math.ceil(from - 1e-9); b < to - 1e-9; b++) {
       const t = beatTime(b);
       const o = ctx.createOscillator(), e = ctx.createGain();
-      o.frequency.value = b % 4 === 0 ? 1760 : 1320;
+      const bb = BF.barBeats(), accent = Math.abs(b / bb - Math.round(b / bb)) < 1e-9; // first beat of a bar
+      o.frequency.value = accent ? 1760 : 1320;
       e.gain.setValueAtTime(0, t);
-      e.gain.linearRampToValueAtTime(b % 4 === 0 ? 0.32 : 0.2, t + 0.002);
+      e.gain.linearRampToValueAtTime(accent ? 0.32 : 0.2, t + 0.002);
       e.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
       e.gain.linearRampToValueAtTime(0, t + 0.055);
       o.connect(e).connect(g.inserts[0].preview);

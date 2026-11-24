@@ -26,6 +26,15 @@
       const m = p.mixer[tg.insert];
       return m ? { def: tg.field === 'pan' ? PAN : VOL, name: `${m.name} ${tg.field}` } : null;
     }
+    if (tg.kind === 'tempo') return { def: { name: 'Tempo', min: 40, max: 300, default: p.bpm, fmt: (v) => `${v.toFixed(1)} BPM` }, name: 'Tempo' };
+    if (tg.kind === 'vst') { // a VST plugin's knob (normalised 0..1); tg.id = channel or mixer effect id
+      const ch = p.channels.find((c) => c.id === tg.id);
+      const fx = ch ? null : p.mixer.flatMap((m) => m.fx).find((f) => f.id === tg.id);
+      if ((!ch && !fx) || !Number.isInteger(tg.param)) return null;
+      const pi = BF.vst && BF.vst.info.get(tg.id)?.params.find((x) => x.id === tg.param);
+      const knob = pi ? pi.title : tg.label || `Knob ${tg.param}`;
+      return { def: { name: knob, min: 0, max: 1, default: pi ? pi.def : 0.5, fmt: (v) => `${Math.round(v * 100)}%` }, name: `${ch ? ch.name : fx.vstName || 'VST'} · ${knob}` };
+    }
     if (tg.kind === 'fx') {
       const f = p.mixer[tg.insert]?.fx.find((x) => x.id === tg.fxId);
       if (!f) return null;
@@ -44,6 +53,8 @@
     if (tg.kind === 'chp') return p.channels.find((c) => c.id === tg.id)?.params[tg.param];
     if (tg.kind === 'mx') return p.mixer[tg.insert]?.[tg.field];
     if (tg.kind === 'fx') return p.mixer[tg.insert]?.fx.find((x) => x.id === tg.fxId)?.params[tg.param];
+    if (tg.kind === 'tempo') return p.bpm;
+    if (tg.kind === 'vst') { const pi = BF.vst && BF.vst.info.get(tg.id)?.params.find((x) => x.id === tg.param); return pi ? pi.value : 0.5; }
     return null;
   };
 
@@ -90,7 +101,8 @@
   /** Book automation for song beats [from, to) into graph g. `later(time, fn)` runs fn at an audio time. */
   AU.schedule = function (g, p, from, to, beatTime, later) {
     const targets = new Map();
-    p.clips.forEach((c) => { if (c.kind === 'auto' && c.target.kind !== 'chp' && c.start < to && c.start + c.len > from) targets.set(key(c.target), c.target); });
+    // (tempo clips are not booked here: the transport follows them through BF.tempoMap)
+    p.clips.forEach((c) => { if (c.kind === 'auto' && c.target.kind !== 'chp' && c.target.kind !== 'tempo' && c.start < to && c.start + c.len > from) targets.set(key(c.target), c.target); });
     if (!targets.size) return;
     const STEP = 0.25; // apply 4 values per beat; AudioParams ramp linearly between them
     for (const tg of targets.values()) {
@@ -108,6 +120,8 @@
           const ins = g.inserts[tg.insert];
           if (tg.field === 'pan') ins.pan.pan.linearRampToValueAtTime(v, t);
           else ins.fader.gain.linearRampToValueAtTime(BF.insertAudible(tg.insert, p) ? v : 0, t);
+        } else if (tg.kind === 'vst') {
+          if (BF.vst) BF.vst.param(g, tg.id, tg.param, v, t); // timed exactly by the plugin host (both live and export)
         } else if (tg.kind === 'fx') {
           later(t, () => {
             const ins = g.inserts[tg.insert];

@@ -206,6 +206,7 @@
     const p = BF.newProject(false);
     p.name = P.title || 'FL Studio project';
     p.bpm = Math.round(BF.clamp(P.tempo || 130, 40, 300, 130) * 100) / 100;
+    p.timeSig = { num: P.timeSig[0] || 4, den: P.timeSig[1] || 4 };
     p.channels = [];
     p.patterns = [];
     p.clips = [];

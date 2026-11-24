@@ -431,7 +431,12 @@
       const stats = document.createElement('div'); stats.className = 'hint';
       const notes = p.patterns.reduce((a, pt) => a + Object.values(pt.notes).reduce((x, arr) => x + arr.length, 0), 0);
       stats.textContent = `${p.channels.length} channels · ${p.patterns.length} patterns · ${notes} notes · ${p.clips.length} playlist clips · ${Object.keys(p.samples).length} audio files · song ${(BF.songEndBeat() * 60 / p.bpm).toFixed(1)} s at ${p.bpm} BPM`;
-      b.append(row('Name', name), row('Minimum song length (bars)', bars), stats);
+      const ts = document.createElement('select'); ts.setAttribute('aria-label', 'Time signature');
+      ['2/4', '3/4', '4/4', '5/4', '6/4', '7/4', '3/8', '5/8', '6/8', '7/8', '9/8', '12/8'].forEach((x) => ts.add(new Option(x, x)));
+      ts.value = `${p.timeSig.num}/${p.timeSig.den}`;
+      if (!ts.value) { ts.add(new Option(`${p.timeSig.num}/${p.timeSig.den}`, `${p.timeSig.num}/${p.timeSig.den}`)); ts.value = `${p.timeSig.num}/${p.timeSig.den}`; }
+      ts.addEventListener('change', () => { const [n, d] = ts.value.split('/').map(Number); BF.commit((q) => { q.timeSig = { num: n, den: d }; }); BF.playlist && BF.playlist.render && BF.playlist.render(); });
+      b.append(row('Name', name), row('Time signature', ts), row('Minimum song length (bars)', bars), stats);
     });
   };
 

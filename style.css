@@ -367,3 +367,5 @@ input[type=range] { accent-color: var(--accent); }
 .vst-item { display: flex; justify-content: space-between; gap: 12px; text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, rgba(255,255,255,.08)); background: transparent; color: inherit; cursor: pointer; }
 .vst-item:hover, .vst-item:focus-visible { background: rgba(255,255,255,.06); }
 .vst-item span { opacity: .6; font-size: 12px; }
+.vst-tabs { display: flex; gap: 6px; margin: 4px 0 8px; }
+.se-tune { display: grid; gap: 10px; margin: 10px 0; } .se-tune .field { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

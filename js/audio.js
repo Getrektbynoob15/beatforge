@@ -65,8 +65,11 @@
       const preview = ctx.createGain();
       transport.connect(input);
       preview.connect(input);
-      fader.connect(pan).connect(meter);
-      inserts.push({ input, fader, pan, meter, transport, preview, fx: [], fxKey: null });
+      // delay compensation for VST effects (0 unless another insert has a VST effect, see A.sync)
+      const pdc = ctx.createDelay(1);
+      pdc.delayTime.value = 0;
+      fader.connect(pdc).connect(pan).connect(meter);
+      inserts.push({ input, fader, pdc, pan, meter, transport, preview, fx: [], fxKey: null, index: i });
     }
     inserts[0].meter.connect(ctx.destination);
     // inserts 1..16 are routed by syncRoutes() (to Master and/or sends to other inserts)
@@ -84,7 +87,7 @@
       m.fx.forEach((f) => {
         let x = keep.get(f.id);
         if (x && x.plugin === f.plugin) keep.delete(f.id);
-        else x = { id: f.id, plugin: f.plugin, inst: BF.plugins.get(f.plugin).create(g.ctx) };
+        else x = { id: f.id, plugin: f.plugin, inst: BF.plugins.get(f.plugin).create(g.ctx, { g, fx: f, insert: ins.index }) };
         next.push(x);
       });
       keep.forEach((x) => x.inst.dispose());
@@ -157,6 +160,13 @@
       syncFx(g, ins, m, p.bpm);
     });
     syncRoutes(g, p);
+    // VST effects come back a fixed time later: delay the inserts without one by as much, so everything lines up
+    if (!isOffline(ctx)) {
+      const lat = g.inserts.map((ins) => ins.fx.reduce((a, x) => a + (x.inst.latency && !p.mixer[ins.index].fx.find((f) => f.id === x.id)?.bypass ? x.inst.latency : 0), 0));
+      const max = Math.max(0, ...lat.slice(1));
+      g.inserts.forEach((ins, i) => { const d = i === 0 ? 0 : (max - lat[i]) / ctx.sampleRate; if (Math.abs(ins.pdc.delayTime.value - d) > 1e-7) ins.pdc.delayTime.value = d; });
+      g.latency = (max + lat[0]) / ctx.sampleRate;
+    }
     const live = new Set();
     p.channels.forEach((ch) => {
       live.add(ch.id);

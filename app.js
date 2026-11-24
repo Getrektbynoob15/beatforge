@@ -151,6 +151,9 @@
   $('stopBtn').addEventListener('click', () => { BF.transport.stop(); BF.transport.startBeat = 0; BF.emit('transport'); });
   $('modePattern').addEventListener('click', () => BF.transport.setMode('pattern'));
   $('modeSong').addEventListener('click', () => BF.transport.setMode('song'));
+  // right-click the tempo: tempo automation (tempo changes in the song), like a DAW's tempo track
+  $('bpm').addEventListener('contextmenu', (e) => { e.preventDefault(); BF.auto.menu(e.clientX, e.clientY, { kind: 'tempo' }, () => {}); });
+  $('bpm').title = 'Tempo. Right-click: tempo changes over the song (automation clip)';
   $('bpm').addEventListener('change', () => {
     const v = Math.round(BF.clamp($('bpm').value, 40, 300, BF.project.bpm) * 100) / 100;
     $('bpm').value = v;
@@ -300,7 +303,8 @@
     }
     if (W.isOpen('mixer')) BF.mixer.meters();
     const b = Math.max(0, beat);
-    $('posText').textContent = `${Math.floor(b / 4) + 1}.${(Math.floor(b) % 4) + 1}.${(Math.floor(b * 4) % 4) + 1}`;
+    const bb = BF.barBeats(), inBar = b - Math.floor(b / bb + 1e-9) * bb;
+    $('posText').textContent = `${Math.floor(b / bb + 1e-9) + 1}.${Math.floor(inBar) + 1}.${(Math.floor(b * 4) % 4) + 1}`;
     requestAnimationFrame(frame);
   }
 

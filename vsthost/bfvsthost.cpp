@@ -380,7 +380,9 @@ static void cmdRender(const std::string& rid, const std::vector<std::string>& f,
   struct Ev { int32_t off, type, key; float vel; };
   std::vector<Ev> evs;
   for (int i = 0; i < nEv && p + 16 <= end; i++, p += 16) { Ev e; memcpy(&e, p, 16); evs.push_back(e); }
-  for (int i = 0; i < nPar && p + 12 <= end; i++, p += 12) { uint32_t id; double v; memcpy(&id, p, 4); memcpy(&v, p + 4, 8); in->queueParam(id, v); if (in->ctrl) in->ctrl->setParamNormalized(id, v); }
+  std::map<uint32_t, double> shown; // automation: the processor gets every change, the plugin's window the latest (on the UI thread)
+  for (int i = 0; i < nPar && p + 12 <= end; i++, p += 12) { uint32_t id; double v; memcpy(&id, p, 4); memcpy(&v, p + 4, 8); in->queueParam(id, v); shown[id] = v; }
+  if (!shown.empty() && in->ctrl) { auto keep = in; gUi.push([keep, shown] { if (keep->ctrl) for (auto& kv : shown) keep->ctrl->setParamNormalized(kv.first, kv.second); }); wakeUi(); }
   const float* inL = nullptr; const float* inR = nullptr;
   if ((size_t)(end - p) >= (size_t)frames * 8) { inL = (const float*)p; inR = inL + frames; }
 

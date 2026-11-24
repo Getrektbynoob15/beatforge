@@ -121,7 +121,7 @@ function setup(getWin) {
         case 'closeEdit': if (!INST.test(a.inst)) return { error: 'Bad request.' }; return (await call(['closeedit', a.inst])).h;
         case 'render': { // offline export: a whole block at once
           if (!INST.test(a.inst)) return { error: 'Bad request.' };
-          const r = await call(['render', a.inst, num(a.frames), num(a.nEv), '0', num(a.tempo), '1', num(a.pos)], a.events ? Buffer.from(a.events) : null);
+          const r = await call(['render', a.inst, num(a.frames), num(a.nEv), num(a.nPar), num(a.tempo), '1', num(a.pos)], a.events ? Buffer.from(a.events) : null);
           return r.h.error ? r.h : { audio: r.b };
         }
         default: return { error: 'Unknown command.' };
@@ -138,7 +138,7 @@ function setup(getWin) {
       if (d.type !== 'render' || !INST.test(d.inst) || !proc) { port1.postMessage({ rid: d.rid, error: true }); return; }
       const id = `r${++seq}`;
       waits.set(id, (h, b) => port1.postMessage({ rid: d.rid, error: !!h.error, audio: b && b.length ? new Float32Array(b.buffer, b.byteOffset, b.length / 4).slice() : null }));
-      proc.stdin.write(frame([id, 'render', d.inst, num(d.frames), num(d.nEv), '0', num(d.tempo), d.playing ? '1' : '0', num(d.pos)], d.events ? Buffer.from(d.events) : null));
+      proc.stdin.write(frame([id, 'render', d.inst, num(d.frames), num(d.nEv), num(d.nPar), num(d.tempo), d.playing ? '1' : '0', num(d.pos)], d.events ? Buffer.from(d.events) : null));
     });
     port1.start();
     e.sender.postMessage('vst:port', null, [port2]);

@@ -661,8 +661,10 @@
     const first = Math.floor(stepOf(KEYW)), last = Math.ceil(stepOf(w));
     for (let s = Math.max(0, first); s <= last; s++) {
       const x = Math.round(xOf(s)) + 0.5;
-      g.fillStyle = s % 16 === 0 ? 'rgba(255,255,255,.22)' : s % 4 === 0 ? 'rgba(255,255,255,.10)' : 'rgba(255,255,255,.04)';
-      if (zoom < 10 && s % 4) continue;
+      const SB = BF.barBeats() * 4; // steps per bar
+      const onBar = Math.abs(s / SB - Math.round(s / SB)) < 1e-9;
+      g.fillStyle = onBar ? 'rgba(255,255,255,.22)' : s % 4 === 0 ? 'rgba(255,255,255,.10)' : 'rgba(255,255,255,.04)';
+      if (zoom < 10 && s % 4 && !onBar) continue;
       g.fillRect(x, RULER, 1, gridH);
     }
     // past the pattern end
@@ -725,7 +727,8 @@
     g.fillStyle = '#9aa3b2';
     g.font = '11px system-ui, sans-serif';
     for (let s = Math.max(0, Math.floor(first / 4) * 4); s <= last; s += 4) {
-      if (s % 16 === 0 || zoom >= 12) g.fillText(s % 16 === 0 ? String(s / 16 + 1) : `${s / 16 + 1 | 0}.${(s % 16) / 4 + 1}`, xOf(s) + 3, 14);
+      const SB = BF.barBeats() * 4, bar = Math.floor(s / SB + 1e-9), inBar = s - bar * SB;
+      if (inBar < 1e-9 || zoom >= 12) g.fillText(inBar < 1e-9 ? String(bar + 1) : `${bar + 1}.${Math.floor(inBar / 4) + 1}`, xOf(s) + 3, 14);
     }
     // velocity lane
     const vy = h - VEL;
