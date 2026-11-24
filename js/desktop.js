@@ -29,7 +29,8 @@
     go.disabled = false;
     if (r.ok && r.shell) show([p(`BeatForge ${r.version} is downloaded, including a new desktop part. Restart: BeatForge closes, installs the update and opens again by itself (about 20 seconds).`)], 'Restart and install', () => D.restart());
     else if (r.ok) show([p(`BeatForge ${r.version} is installed. Restart to use it.`)], 'Restart now', () => D.restart());
-    else show([p(r.message || 'The update failed.'), ...(r.page ? [p(`Download it from: ${r.page}`)] : [])], null, null);
+    else if (r.page) show([p(`${r.message || 'This update needs a download.'} Get the installer, run it, and start BeatForge again. Your projects, templates and packs stay.`)], 'Download installer', () => { window.open('https://grbnstudios.com/beatforge', '_blank', 'noopener'); dlg.close(); });
+    else show([p(r.message || 'The update failed.')], null, null);
   }
 
   BF.desktop.check = async function (manual) {
@@ -40,7 +41,7 @@
     notes.className = 'upd-notes';
     notes.textContent = r.notes || '';
     if (r.installable) show([p(`BeatForge ${r.latest} is available (you have ${r.current}).`), notes], 'Update now', install);
-    else show([p(`BeatForge ${r.latest} is available (you have ${r.current}). This version needs a full download:`), p(r.page)], null, null);
+    else show([p(`BeatForge ${r.latest} is available (you have ${r.current}). This version has a new desktop part, so it needs one download: get the installer, run it, and start BeatForge again. Your projects, templates and packs stay.`)], 'Download installer', () => { window.open('https://grbnstudios.com/beatforge', '_blank', 'noopener'); dlg.close(); });
   };
 
   later.addEventListener('click', () => dlg.close());
