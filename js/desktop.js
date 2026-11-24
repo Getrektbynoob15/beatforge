@@ -27,7 +27,8 @@
     show([p('Downloading and checking the update…')], 'Working…', () => {});
     const r = await D.installUpdate();
     go.disabled = false;
-    if (r.ok) show([p(`BeatForge ${r.version} is installed. Restart to use it.`)], 'Restart now', () => D.restart());
+    if (r.ok && r.shell) show([p(`BeatForge ${r.version} is downloaded, including a new desktop part. Restart: BeatForge closes, installs the update and opens again by itself (about 20 seconds).`)], 'Restart and install', () => D.restart());
+    else if (r.ok) show([p(`BeatForge ${r.version} is installed. Restart to use it.`)], 'Restart now', () => D.restart());
     else show([p(r.message || 'The update failed.'), ...(r.page ? [p(`Download it from: ${r.page}`)] : [])], null, null);
   }
 

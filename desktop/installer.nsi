@@ -32,7 +32,15 @@ VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "MIT licence, GRBN Studios"
 
+; a quiet install (/S) comes from BeatForge's own updater: give the app a moment to close, and open it again afterwards
+Function .onInstSuccess
+  IfSilent 0 +2
+  Exec '"$INSTDIR\BeatForge.exe"'
+FunctionEnd
+
 Section "BeatForge"
+  IfSilent 0 +2
+  Sleep 2500
   SetOutPath "$INSTDIR"
   ; replace the program files of an older version (projects and settings live elsewhere and are kept)
   RMDir /r "$INSTDIR\resources"

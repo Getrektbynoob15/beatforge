@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const SHELL_API = 3; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links)
+const SHELL_API = 4; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part)
 const REPO = 'Getrektbynoob15/beatforge';
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEVeewGzZ2Xthyx2YqibvO8vpwJie7J22oq9C1sjeQcM=
@@ -146,7 +146,8 @@ async function checkUpdate() {
   const bundle = (rel.assets || []).find((a) => a.name === `beatforge-app-${version}.json.gz`);
   const sig = (rel.assets || []).find((a) => a.name === `beatforge-app-${version}.json.gz.sig`);
   const newer = cmpVer(version, loaded.version) > 0;
-  return { current: loaded.version, latest: version, newer, installable: newer && !!bundle && !!sig, notes: String(rel.body || '').slice(0, 2000), page: rel.html_url, bundleUrl: bundle?.browser_download_url, sigUrl: sig?.browser_download_url };
+  const setup = (rel.assets || []).find((a) => a.name === `BeatForge-${version}-Setup.exe`);
+  return { current: loaded.version, latest: version, newer, installable: newer && !!bundle && !!sig, notes: String(rel.body || '').slice(0, 2000), page: rel.html_url, bundleUrl: bundle?.browser_download_url, sigUrl: sig?.browser_download_url, setupUrl: setup?.browser_download_url };
 }
 
 const SAFE_PATH = /^(index\.html|style\.css|app\.js|LICENSE|js\/[A-Za-z0-9_\-/]+\.js)$/;
@@ -176,6 +177,7 @@ async function moveDir(from, to) {
   try { fs.rmSync(from, { recursive: true, force: true }); } catch { /* removed next time */ }
 }
 
+let pendingSetup = null;
 async function installUpdate() {
   const info = await checkUpdate();
   if (!info.newer) return { ok: false, message: 'You already have the newest version.' };
@@ -186,7 +188,18 @@ async function installUpdate() {
   if (!okSig) throw new Error('The update is not signed by BeatForge. It was not installed.');
   const pkg = JSON.parse(zlib.gunzipSync(gz).toString('utf8'));
   if (pkg.app !== 'BeatForge' || pkg.version !== info.latest) throw new Error('The update package does not match the release.');
-  if ((pkg.shellApi || 1) > SHELL_API) return { ok: false, message: 'This version needs a full download (the desktop part changed).', page: info.page };
+  if ((pkg.shellApi || 1) > SHELL_API) {
+    // the desktop part changed: on an installed Windows copy, fetch the installer named in the signed package, check it
+    // and run it quietly when the user restarts; elsewhere ask for a manual download
+    const installed = process.platform === 'win32' && /[\\/]Programs[\\/]BeatForge[\\/]/i.test(process.execPath);
+    if (!installed || !pkg.setup || !info.setupUrl) return { ok: false, message: 'This version needs a full download (the desktop part changed).', page: info.page };
+    const exe = await getBytes(info.setupUrl, 400 * 1024 * 1024);
+    if (exe.length !== pkg.setup.size || crypto.createHash('sha256').update(exe).digest('hex') !== pkg.setup.sha256) throw new Error('The downloaded installer does not match the signed update. It was not installed.');
+    const file = path.join(app.getPath('temp'), pkg.setup.name);
+    fs.writeFileSync(file, exe);
+    pendingSetup = file;
+    return { ok: true, version: pkg.version, shell: true };
+  }
   const files = Object.entries(pkg.files || {});
   if (!files.some(([p]) => p === 'index.html')) throw new Error('The update package is incomplete.');
   for (const [p] of files) if (!SAFE_PATH.test(p) || p.includes('..')) throw new Error(`Unsafe file in update: ${p}`);
@@ -233,11 +246,12 @@ async function pluginSource(id, version) {
   return b.toString('utf8');
 }
 // live sessions: only the matchmaker on grbnstudios.com (the music itself goes directly between the computers)
-const COLLAB_PATH = /^\/beatforge\/collab\/rooms(\/[A-Z2-9]{6}(\/join|\/pending\?token=[a-f0-9]{48}|\/answer|\/answer\/[a-f0-9]{24}|\?token=[a-f0-9]{48})?)?$/;
+const COLLAB_PATH = /^\/beatforge\/collab\/rooms(\/[A-Z2-9]{6}(\/join|\/pending|\/answer|\/answer\/[a-f0-9]{24}|\/relay\/(join|send|recv|leave))?)?(\?(token=[a-f0-9]{48}|gid=[a-f0-9]{24}))?$/;
 ipcMain.handle('collab:request', async (_e, method, p, body) => {
   try {
     if (!['GET', 'POST', 'DELETE'].includes(method) || typeof p !== 'string' || !COLLAB_PATH.test(p)) return { error: 'Not allowed.' };
-    const r = await fetch(`https://grbnstudios.com/api/main${p}`, { method, headers: { 'User-Agent': 'BeatForge', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body).slice(0, 60000) : undefined });
+    if (body && JSON.stringify(body).length > 3e6) return { error: 'Too big.' };
+    const r = await fetch(`https://grbnstudios.com/api/main${p}`, { method, headers: { 'User-Agent': 'BeatForge', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, json: await r.json().catch(() => ({})) };
   } catch (e) { return { error: String(e.message || e) }; }
 });
@@ -248,7 +262,15 @@ ipcMain.handle('app:info', () => ({ version: loaded.version, bundled: BUNDLED_VE
 ipcMain.handle('app:booted', () => { clearTimeout(bootTimer); rendererReady = true; setTimeout(deliverJoin, 300); return true; });
 ipcMain.handle('update:check', async () => { try { return await checkUpdate(); } catch (e) { return { error: String(e.message || e) }; } });
 ipcMain.handle('update:install', async () => { try { return await installUpdate(); } catch (e) { return { ok: false, message: String(e.message || e) }; } });
-ipcMain.handle('update:restart', () => { closingOk = true; app.relaunch(); app.exit(0); });
+ipcMain.handle('update:restart', () => {
+  closingOk = true;
+  if (pendingSetup) { // the installer replaces the desktop part and opens BeatForge again when it is done
+    require('node:child_process').spawn(pendingSetup, ['/S'], { detached: true, stdio: 'ignore' }).unref();
+    app.exit(0);
+    return;
+  }
+  app.relaunch(); app.exit(0);
+});
 ipcMain.handle('settings:set', (_e, patch) => {
   const s = { ...readJson(settingsFile(), { autoUpdate: true }), ...(patch && typeof patch === 'object' ? { autoUpdate: !!patch.autoUpdate } : {}) };
   writeJsonAtomic(settingsFile(), s);

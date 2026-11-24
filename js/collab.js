@@ -94,6 +94,7 @@
 
   // ---------- messages over the data channel (split into pieces, with back-pressure) ----------
   const waitRoom = (dc) => new Promise((res) => {
+    if (dc.relay) { const tick = () => (dc.bufferedAmount < 2e6 || dc.readyState !== 'open' ? res() : setTimeout(tick, 50)); return tick(); }
     if (dc.bufferedAmount < 2e6) return res();
     dc.bufferedAmountLowThreshold = 5e5;
     dc.addEventListener('bufferedamountlow', () => res(), { once: true });
@@ -230,6 +231,76 @@
     C.render();
   }
 
+  // ---------- relay through grbnstudios.com (when a direct connection is blocked, e.g. school wifi) ----------
+  // Works like a data channel: messages are batched into normal https requests, and a long poll picks up replies.
+  function relayChannel(post) {
+    const dc = { relay: true, readyState: 'open', bufferedAmount: 0, onopen: null, onmessage: null, onclose: null, out: [] };
+    let busy = false;
+    dc.send = (s) => { if (dc.readyState !== 'open') return; dc.out.push(s); dc.bufferedAmount += s.length; pump(); };
+    dc.close = () => { if (dc.readyState === 'closed') return; dc.readyState = 'closed'; if (dc.onclose) dc.onclose(); };
+    dc.addEventListener = (type, fn) => { if (type === 'open') setTimeout(fn, 0); };
+    async function pump() {
+      if (busy) return;
+      busy = true;
+      while (dc.out.length && dc.readyState === 'open') {
+        const batch = [];
+        let size = 0;
+        while (dc.out.length && batch.length < 48 && size + dc.out[0].length < 2.4e6) { const s = dc.out.shift(); batch.push(s); size += s.length; }
+        let tries = 0;
+        for (;;) {
+          try { await post(batch); break; } catch (e) {
+            if (/not in this session|No session/i.test(e.message) || ++tries > 5) { dc.close(); busy = false; return; }
+            await new Promise((r) => setTimeout(r, 800 * tries));
+          }
+        }
+        dc.bufferedAmount = Math.max(0, dc.bufferedAmount - size);
+      }
+      busy = false;
+    }
+    return dc;
+  }
+  /** Keep long-polling `path` until stopped; hands each received item to onItem. */
+  function recvLoop(path, onItem, isOpen, onGone) {
+    (async () => {
+      let fails = 0;
+      while (isOpen()) {
+        try {
+          const r = await api('GET', path());
+          fails = 0;
+          (r.msgs || []).forEach(onItem);
+        } catch (e) {
+          if (/not in this session|No session/i.test(e.message) || ++fails > 8) { onGone(); return; }
+          await new Promise((res) => setTimeout(res, 1000 * fails));
+        }
+      }
+    })();
+  }
+  // host: accept friends who come in through the relay
+  function hostRelay() {
+    recvLoop(() => `/beatforge/collab/rooms/${C.code}/relay/recv?token=${C.token}`, (m) => {
+      const id = `r:${m.g}`;
+      if (m.ev === 'join') {
+        const peer = { id, name: m.name, pc: { close() {} }, viaRelay: true };
+        C.peers.set(id, peer);
+        wire(peer, relayChannel((msgs) => api('POST', `/beatforge/collab/rooms/${C.code}/relay/send`, { token: C.token, to: m.g, msgs })));
+        peer.dc.onopen = null; // the friend says hello first
+        C.render();
+      } else if (m.ev === 'leave') { const p = C.peers.get(id); if (p) left(p); }
+      else if (m.d !== undefined) { const p = C.peers.get(id); if (p) onMessage(p, m.d); }
+    }, () => C.role === 'host', () => {});
+  }
+  async function joinRelay(code, name) {
+    const r = await api('POST', `/beatforge/collab/rooms/${code}/relay/join`, { name });
+    const peer = { id: 'host', name: r.host || 'Host', pc: { close() {} }, viaRelay: true };
+    C.peers.set(peer.id, peer);
+    const dc = relayChannel((msgs) => api('POST', `/beatforge/collab/rooms/${code}/relay/send`, { gid: r.gid, msgs }));
+    wire(peer, dc);
+    const prevClose = dc.onclose;
+    dc.onclose = () => { api('POST', `/beatforge/collab/rooms/${code}/relay/leave`, { gid: r.gid }).catch(() => {}); prevClose(); };
+    recvLoop(() => `/beatforge/collab/rooms/${code}/relay/recv?gid=${r.gid}`, (d) => onMessage(peer, d), () => C.role === 'guest' && dc.readyState === 'open', () => dc.close());
+    dc.onopen();
+  }
+
   // ---------- connections ----------
   function waitGather(pc) {
     return new Promise((res) => {
@@ -291,6 +362,7 @@
       Object.assign(C, { role: 'host', code: r.code, token: r.token, name });
       shadow = strip(BF.project);
       pollTimer = setInterval(poll, 1200);
+      hostRelay();
       C.render();
       C.open();
     } catch (e) { BF.ui.toast(`Could not start a session: ${e.message || e}`, true); }
@@ -347,14 +419,22 @@
       if (!answer) throw new Error('The host did not answer. Is their BeatForge open with the session running?');
       await pc.setRemoteDescription(answer);
       await new Promise((res, rej) => {
-        const t = setTimeout(() => rej(new Error('Could not connect directly to the host (a router or network is blocking it).')), 20000);
+        const t = setTimeout(() => rej(new Error('Could not connect directly to the host (a router or network is blocking it).')), 12000);
         const ok = () => { if (peer.dc && peer.dc.readyState === 'open') { clearTimeout(t); res(); } };
         peer.dc.addEventListener('open', ok);
         ok();
       });
     } catch (e) {
-      BF.ui.toast(`Could not join: ${e.message || e}`, true);
-      reset();
+      // the direct connection did not work (strict network): go through grbnstudios.com instead
+      C.peers.delete(peer.id); // first, so closing the failed connection does not end the session
+      try { pc.close(); } catch { /* */ }
+      if (C.role !== 'guest' || /No session|not answer/i.test(String(e.message))) {
+        BF.ui.toast(`Could not join: ${e.message || e}`, true);
+        reset();
+      } else {
+        BF.ui.busy('Direct connection blocked by this network. Connecting through grbnstudios.com…');
+        try { await joinRelay(code, name); } catch (e2) { BF.ui.toast(`Could not join: ${e2.message || e2}`, true); reset(); }
+      }
     } finally { BF.ui.busy(null); }
   };
 
