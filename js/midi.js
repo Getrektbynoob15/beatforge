@@ -12,6 +12,10 @@
     const ctx = BF.audio.ensure();
     const g = BF.audio.graph;
     const def = BF.plugins.get(ch.plugin);
+    if (def.vst && BF.vst) { // VST instruments get a real note-off too
+      const h = BF.vst.note(g, ch, ctx.currentTime + 0.004, key + ch.pitch, vel, null);
+      return { release() { if (h) h.release(); } };
+    }
     if (def.ext) { // community instruments get a real note-off (their own release)
       const h = BF.community.note(g, ch, ctx.currentTime + 0.004, key + ch.pitch, vel, null, 'live', null);
       return { release() { if (h) h.release(); } };

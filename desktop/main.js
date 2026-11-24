@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const SHELL_API = 4; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part)
+const SHELL_API = 5; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part, 5: VST3 plugin host)
 const REPO = 'Getrektbynoob15/beatforge';
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEVeewGzZ2Xthyx2YqibvO8vpwJie7J22oq9C1sjeQcM=
@@ -258,6 +258,7 @@ ipcMain.handle('collab:request', async (_e, method, p, body) => {
 ipcMain.handle('plugins:catalog', async () => { try { return { catalog: await pluginCatalog() }; } catch (e) { return { error: String(e.message || e) }; } });
 ipcMain.handle('plugins:source', async (_e, id, version) => { try { return { source: await pluginSource(id, version) }; } catch (e) { return { error: String(e.message || e) }; } });
 
+require('./vst-main.js').setup(() => win);
 ipcMain.handle('app:info', () => ({ version: loaded.version, bundled: BUNDLED_VERSION, shellApi: SHELL_API, updated: loaded.updated, settings: readJson(settingsFile(), { autoUpdate: true }) }));
 ipcMain.handle('app:booted', () => { clearTimeout(bootTimer); rendererReady = true; setTimeout(deliverJoin, 300); return true; });
 ipcMain.handle('update:check', async () => { try { return await checkUpdate(); } catch (e) { return { error: String(e.message || e) }; } });

@@ -11,7 +11,13 @@ printf "window.BF_VERSION = '%s';\n" "$VER" > js/version.js
 app() { # copy the web app + desktop shell into $1
   mkdir -p "$1"
   cp -r index.html style.css app.js js LICENSE "$1/"
-  cp desktop/main.js desktop/preload.js desktop/package.json desktop/icon.png "$1/"
+  cp desktop/main.js desktop/preload.js desktop/vst-main.js desktop/package.json desktop/icon.png "$1/"
+}
+# the BeatForge Plugin Host (VST3), built from vsthost/ with the VST3 SDK (MIT, licence copied next to it)
+vsthost/build.sh all >/dev/null
+VSTLIC=${VST3SDK:-$HOME/vendor/vst3sdk}/LICENSE.txt
+host() { # $1 = resources dir, $2 = binary name
+  cp "vsthost/build/$2" "$1/$2"; cp "$VSTLIC" "$1/VST3-SDK-LICENSE.txt"
 }
 for plat in win32-x64 linux-x64; do
   zip="$ELECTRON_DIR/electron-v$EV-$plat.zip"
@@ -20,6 +26,7 @@ for plat in win32-x64 linux-x64; do
   mkdir -p "$out" && unzip -q "$zip" -d "$out"
   rm -f "$out/resources/default_app.asar"
   app "$out/resources/app"
+  if [ "$plat" = win32-x64 ]; then host "$out/resources" bfvsthost.exe; else host "$out/resources" bfvsthost; fi
   if [ "$plat" = win32-x64 ]; then
     mv "$out/electron.exe" "$out/BeatForge.exe"
     cp README.md "$out/README.txt"

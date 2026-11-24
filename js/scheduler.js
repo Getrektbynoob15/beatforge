@@ -257,6 +257,7 @@
     T.sources = [];
     BF.recorder.onStop();
     if (BF.community) BF.community.stopAll();
+    if (BF.vst) BF.vst.stopAll();
     // drop booked automation ramps, go back to the static mixer/channel values
     setTimeout(() => BF.audio.sync(BF.audio.graph, BF.project), 20);
     BF.emit('transport');
@@ -303,6 +304,7 @@
       ctx.suspend(q / rate).then(() => { fns.forEach((f) => f()); ctx.resume(); });
     }
     if (BF.community) BF.community.flush(ctx);
+    if (BF.vst) await BF.vst.flush(ctx, g); // VST channels: rendered by the plugin host, mixed in as audio
     return ctx.startRendering();
   }
 

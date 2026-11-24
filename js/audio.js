@@ -28,6 +28,7 @@
     if (!ctx.audioWorklet) return;
     if (!ctx.__bfWorklets) ctx.__bfWorklets = ctx.audioWorklet.addModule(hostUrl());
     await ctx.__bfWorklets;
+    ctx.__bfWorkletsDone = true;
     if (BF.community) await BF.community.loadInto(ctx);
   };
 
@@ -177,6 +178,7 @@
     if (!def || def.kind !== 'instrument') return;
     const mp = BF.project.masterPitch || 0;
     if (mp && !extras) extras = {};
+    if (def.vst) return BF.vst ? BF.vst.note(g, ch, time, key + ch.pitch, vel, dur) : undefined;
     if (def.ext) return BF.community.note(g, ch, time, key + ch.pitch, vel, dur, preview ? 'preview' : 'main', params);
     let out;
     if (preview) {

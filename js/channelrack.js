@@ -35,7 +35,8 @@
   };
 
   function addMenu() {
-    const items = BF.plugins.list('instrument').filter((d) => d.id !== 'sampler').map((d) => ({ label: d.name, action: () => addChannel(d.id) }));
+    const items = BF.plugins.list('instrument').filter((d) => d.id !== 'sampler' && !d.vst).map((d) => ({ label: d.name, action: () => addChannel(d.id) }));
+    if (BF.vst && BF.vst.available()) items.unshift({ label: 'VST plugins (Serum, Vital…)…', action: () => BF.vst.open() }, '-');
     ['synth', 'fm', 'pluck', 'organ'].forEach((pid) => {
       const def = BF.plugins.get(pid);
       items.push('-');

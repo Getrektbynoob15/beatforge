@@ -358,3 +358,12 @@ input[type=range] { accent-color: var(--accent); }
 /* channel arpeggiator (plugin editor) */
 .ed-arp { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line, rgba(255,255,255,.08)); }
 .ed-arp h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; opacity: .8; text-transform: uppercase; letter-spacing: .04em; }
+
+/* VST plugins */
+.ed-vst-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.ed-vst-search { margin-left: auto; min-width: 160px; }
+.vst-dlg { width: min(560px, 92vw); }
+.vst-list { max-height: 50vh; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.vst-item { display: flex; justify-content: space-between; gap: 12px; text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, rgba(255,255,255,.08)); background: transparent; color: inherit; cursor: pointer; }
+.vst-item:hover, .vst-item:focus-visible { background: rgba(255,255,255,.06); }
+.vst-item span { opacity: .6; font-size: 12px; }

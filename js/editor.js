@@ -58,7 +58,7 @@
     badge.className = 'ed-badge';
     badge.textContent = def.kind === 'instrument' ? 'Instrument' : 'Effect';
     top.append(badge);
-    if (def.presets) {
+    if (def.presets && Object.keys(def.presets).length) {
       const ps = document.createElement('select');
       ps.setAttribute('aria-label', 'Preset');
       ps.add(new Option('Presets…', ''));
@@ -76,7 +76,7 @@
     reset.textContent = 'Reset';
     reset.title = 'All knobs back to default';
     reset.addEventListener('click', () => { BF.commit((p) => { locate(p).params = BF.plugins.defaults(def.id); }); E.render(); });
-    top.append(reset);
+    if (!/^vst:/.test(cur.plugin)) top.append(reset);
     if (cur.plugin === 'sampler') {
       const load = document.createElement('button');
       load.className = 'btn small';
@@ -102,6 +102,7 @@
       top.append(test);
     }
     body.append(top);
+    if (/^vst:/.test(cur.plugin)) { body.append(vstSection(cur, def)); if (def.kind === 'instrument') body.append(arpSection(cur.obj)); return; }
     const grid = document.createElement('div');
     grid.className = 'ed-grid';
     def.params.forEach((pd) => {
@@ -121,6 +122,47 @@
     body.append(grid);
     if (def.kind === 'instrument') body.append(arpSection(cur.obj));
   };
+
+  /** A VST3 plugin: its own window (Windows) and its knobs, straight from the plugin. */
+  let vstCtl = new Map();
+  function vstSection(cur, def) {
+    const box = document.createElement('div'); box.className = 'ed-vst';
+    const chId = E.target.id;
+    const info = BF.vst && BF.vst.info.get(chId);
+    const row = document.createElement('div'); row.className = 'ed-vst-top';
+    if (def.missing || !def.vst) {
+      const p = document.createElement('p'); p.className = 'empty';
+      p.textContent = BF.vst && BF.vst.available() ? `This project uses "${cur.obj.vstName || 'a VST plugin'}", which was not found on this computer. Install it (VST3), then click VST plugins… → Scan again. Its settings are kept.` : 'VST plugins work in the BeatForge desktop app. The channel and its settings are kept.';
+      box.append(p); return box;
+    }
+    if (!info) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = `Loading ${def.name}…`; box.append(p); return box; }
+    if (info.editor) {
+      const open = document.createElement('button'); open.className = 'btn accent small'; open.textContent = `Open ${def.name}`;
+      open.title = "Opens the plugin's own window";
+      open.addEventListener('click', () => BF.vst.openWindow(chId));
+      row.append(open);
+    }
+    const vend = document.createElement('span'); vend.className = 'hint'; vend.textContent = `VST3 · ${def.vst.vendor || ''}`;
+    const search = document.createElement('input'); search.type = 'search'; search.placeholder = `Search ${info.params.length} knobs`; search.className = 'ed-vst-search';
+    row.append(vend, search);
+    const grid = document.createElement('div'); grid.className = 'ed-grid';
+    const draw = () => {
+      grid.textContent = ''; vstCtl = new Map();
+      const q = search.value.trim().toLowerCase();
+      const list = info.params.filter((p) => !p.ro && (!q || p.title.toLowerCase().includes(q)));
+      list.slice(0, 64).forEach((p) => {
+        const fmt = p.steps > 0 ? (v) => String(Math.round(v * p.steps)) : (v) => `${Math.round(v * 100)}%`;
+        const k = BF.ui.knob({ param: { id: `v${p.id}`, name: p.title.slice(0, 24) || `#${p.id}`, min: 0, max: 1, default: p.def, step: p.steps > 0 ? 1 / p.steps : undefined, fmt }, value: p.value, onInput: (v) => { p.value = v; BF.vst.setParam(chId, p.id, v); } });
+        vstCtl.set(p.id, k); grid.append(k.el);
+      });
+      if (list.length > 64) { const m = document.createElement('p'); m.className = 'hint'; m.textContent = `${list.length - 64} more: use the search box${info.editor ? ' or the plugin window' : ''}.`; grid.append(m); }
+    };
+    search.addEventListener('input', draw);
+    draw();
+    box.append(row, grid);
+    return box;
+  }
+  E.vstKnob = (pid, v) => { const k = vstCtl.get(pid); if (k) k.set(v); };
 
   /** Channel arpeggiator (plays held notes/chords one after another). Stored on the channel as ch.arp. */
   const ARP_DEFS = [
@@ -157,6 +199,7 @@
   E.sync = function () {
     const cur = current();
     if (!cur) { E.render(); return; }
+    if (/^vst:/.test(cur.plugin)) { const info = BF.vst && BF.vst.info.get(E.target.id); if (info) info.params.forEach((p) => E.vstKnob(p.id, p.value)); }
     const arp = cur.obj.arp || { mode: 'off', time: '1', range: 1, gate: 0.8 };
     controls.forEach((ctl, id) => ctl.set(id === '__pitch' ? cur.obj.pitch : id.startsWith('__arp_') ? arp[id.slice(6)] : cur.obj.params[id]));
   };

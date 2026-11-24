@@ -4,7 +4,7 @@
  *    that from a blob URL);
  *  - loaded with audioWorklet.addModule(url) (the website, where the security policy forbids blob scripts),
  *    it registers the processors.
- * Processors: bf-envelope (sidechain ducker), bf-comp (multiband compressor), bf-recorder (audio input capture), and the community plugin host
+ * Processors: bf-envelope (sidechain ducker), bf-comp (multiband compressor), bf-vst (VST3 instruments), bf-recorder (audio input capture), and the community plugin host
  * (__bfDefine), which runs approved plugins: their code only ever sees numbers in and numbers out. */
 (function () {
   function audioThread() {
@@ -73,6 +73,67 @@
       }
     }
     registerProcessor('bf-comp', BfComp);
+
+    // ---------- VST3 instrument (desktop app): audio comes from the BeatForge Plugin Host ----------
+    // Notes are known ahead (the transport books them ~0.1 s early), so this asks the host to render a little ahead of
+    // the play position and plays the result exactly on time. Messages go over a MessagePort straight to the app.
+    class BfVst extends AudioWorkletProcessor {
+      constructor() {
+        super();
+        this.N = 32768; this.L = new Float32Array(this.N); this.R = new Float32Array(this.N); this.at = new Float64Array(this.N).fill(-1);
+        this.main = null; this.inst = null; this.rendered = -1; this.inflight = 0; this.reqs = new Map(); this.rid = 0;
+        this.block = 256; this.lead = 1536; this.evs = []; this.tempo = 120; this.playing = false; this.alive = true;
+        this.port.onmessage = (e) => this.msg(e.data);
+      }
+      msg(d) {
+        if (d.type === 'port') { this.main = d.port; this.main.onmessage = (e) => this.reply(e.data); }
+        else if (d.type === 'inst') { this.inst = d.inst; this.rendered = -1; }
+        else if (d.type === 'note') {
+          const f = Math.round(d.t * sampleRate);
+          this.add({ f, type: 0, key: d.key, vel: d.vel });
+          if (d.dur != null) this.add({ f: f + Math.max(1, Math.round(d.dur * sampleRate)), type: 1, key: d.key, vel: 0 });
+        } else if (d.type === 'off') this.add({ f: Math.round(d.t * sampleRate), type: 1, key: d.key, vel: 0 });
+        else if (d.type === 'stop') { this.evs = []; this.add({ f: Math.max(this.rendered, currentFrame), type: 2, key: 0, vel: 0 }); }
+        else if (d.type === 'transport') { this.tempo = d.tempo; this.playing = d.playing; }
+        else if (d.type === 'dispose') this.alive = false;
+      }
+      add(e) { let i = this.evs.length; while (i > 0 && this.evs[i - 1].f > e.f) i--; this.evs.splice(i, 0, e); }
+      request() {
+        const from = this.rendered, n = this.block;
+        let k = 0; while (k < this.evs.length && this.evs[k].f < from + n) k++;
+        const take = this.evs.splice(0, k);
+        const buf = new ArrayBuffer(16 * take.length), dv = new DataView(buf);
+        take.forEach((e, i) => { dv.setInt32(i * 16, Math.max(0, e.f - from), true); dv.setInt32(i * 16 + 4, e.type, true); dv.setInt32(i * 16 + 8, e.key, true); dv.setFloat32(i * 16 + 12, e.vel, true); });
+        const rid = ++this.rid;
+        this.reqs.set(rid, from);
+        this.inflight++;
+        this.main.postMessage({ type: 'render', rid, inst: this.inst, frames: n, nEv: take.length, events: buf, tempo: this.tempo, playing: this.playing, pos: from });
+        this.rendered += n;
+      }
+      reply(d) {
+        const from = this.reqs.get(d.rid);
+        if (from == null) return;
+        this.reqs.delete(d.rid); this.inflight--;
+        if (from < currentFrame) this.lead = Math.min(8192, Math.round(this.lead * 1.25)); // arrived too late: render further ahead
+        if (!d.audio) return;
+        const n = d.audio.length / 2;
+        for (let j = 0; j < n; j++) { const s = (from + j) % this.N; this.L[s] = d.audio[j]; this.R[s] = d.audio[n + j]; this.at[s] = from + j; }
+      }
+      process(inputs, outputs) {
+        const out = outputs[0], now = currentFrame, len = out[0].length;
+        if (this.main && this.inst) {
+          if (this.rendered < now + len) this.rendered = now + len; // start, or fell behind: continue from here
+          while (this.inflight < 6 && this.rendered - now < this.lead) this.request();
+        }
+        for (let i = 0; i < len; i++) {
+          const pos = now + i, s = pos % this.N, ok = this.at[s] === pos;
+          out[0][i] = ok ? this.L[s] : 0;
+          if (out[1]) out[1][i] = ok ? this.R[s] : 0;
+        }
+        return this.alive;
+      }
+    }
+    registerProcessor('bf-vst', BfVst);
 
     // ---------- audio input capture ----------
     class BfRecorder extends AudioWorkletProcessor {

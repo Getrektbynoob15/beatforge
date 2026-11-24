@@ -146,6 +146,8 @@
     // community plugins this computer does not have: keep them as silent placeholders
     const ensureExt = (id, kind) => { if (typeof id === 'string' && /^ext:[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(id) && !BF.plugins.has(id) && BF.community) BF.community.placeholder(id, kind); };
     (Array.isArray(raw.channels) ? raw.channels : []).forEach((c) => c && ensureExt(c.plugin, 'instrument'));
+    // VST plugins this computer has not found (yet): keep the channel and the plugin's saved state
+    (Array.isArray(raw.channels) ? raw.channels : []).forEach((c) => { if (c && typeof c.plugin === 'string' && /^vst:[0-9A-F]{32}$/.test(c.plugin) && !BF.plugins.has(c.plugin)) { if (BF.vst) BF.vst.placeholder(c.plugin, 'instrument', c.vstName || c.name); } });
     (Array.isArray(raw.mixer) ? raw.mixer : []).forEach((m) => m && Array.isArray(m.fx) && m.fx.forEach((f) => f && ensureExt(f.plugin, 'effect')));
     p.channels = (Array.isArray(raw.channels) ? raw.channels : []).slice(0, 128).filter((c) => c && BF.plugins.has(c.plugin) && BF.plugins.get(c.plugin).kind === 'instrument').map((c) => ({
       id: str(c.id, BF.uid('ch')),
@@ -158,6 +160,8 @@
       mute: !!c.mute,
       ...(typeof c.group === 'string' && c.group.trim() ? { group: str(c.group, '', 20) } : {}),
       ...(c.zip ? { zip: true } : {}),
+      ...(/^vst:/.test(c.plugin) && typeof c.vstState === 'string' && c.vstState.length < 32e6 && /^[A-Za-z0-9+/]*={0,2}$/.test(c.vstState) ? { vstState: c.vstState } : {}),
+      ...(/^vst:/.test(c.plugin) ? { vstName: str(c.vstName || (BF.plugins.get(c.plugin) || {}).name, 'VST plugin').replace(/ \(not found\)$/, '') } : {}),
       ...(c.arp && ['up', 'down', 'updown', 'random'].includes(c.arp.mode) ? { arp: { mode: c.arp.mode, time: String(Object.keys(BF.ARP_TIMES || {}).includes(String(c.arp.time)) ? c.arp.time : '1'), range: Math.round(clamp(c.arp.range, 1, 4, 1)), gate: clamp(c.arp.gate, 0.05, 1, 0.8) } } : {}),
       insert: Math.round(clamp(c.insert, 0, BF.INSERTS, 0)),
     }));
