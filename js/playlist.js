@@ -661,13 +661,58 @@
     }
   }
 
+  // ---------- render selected clips to one audio clip (consolidate) ----------
+  P.renderToAudio = async function () {
+    const p = BF.project;
+    const s = p.clips.filter((c) => P.sel.has(c.id) && (c.kind === 'pattern' || c.kind === 'audio') && !c.muted);
+    if (!s.length) { BF.ui.toast('Select pattern or audio clips first.'); return; }
+    const from = Math.min(...s.map((c) => c.start));
+    const to = Math.max(...s.map((c) => c.start + clipLen(c)));
+    if (to - from <= 0) return;
+    BF.ui.busy('Rendering to audio…');
+    try {
+      // only the selected clips, through the mixer as usual (track mutes ignored, like soloing them) but not through
+      // the Master insert: the new clip plays through the Master again, so its effects and volume must not apply twice
+      const tmp = { ...p, clips: s.map((c) => ({ ...c })), tracks: p.tracks.map((t) => ({ ...t, mute: false })), mixer: p.mixer.map((m, i) => (i ? m : { ...m, fx: [], volume: 1, pan: 0, mute: false })) };
+      const buf = await BF.renderRange(tmp, from, to, 44100, 0);
+      const blob = BF.encodeWav(buf);
+      const id = BF.uid('s');
+      const names = [...new Set(s.map((c) => (c.kind === 'pattern' ? p.patterns.find((x) => x.id === c.patternId)?.name : p.samples[c.sampleId]?.name) || 'Clip'))];
+      const sample = { name: `${names.slice(0, 2).join(' + ')}${names.length > 2 ? ' …' : ''} (rendered)`.slice(0, 120), mime: 'audio/wav', base64: BF.io._b64.bytesToBase64(new Uint8Array(await blob.arrayBuffer())) };
+      BF.audio.buffers.set(id, buf);
+      // first track below the selection with room for the new clip
+      const free = (t) => !p.clips.some((c) => c.track === t && c.start < to - 1e-6 && c.start + clipLen(c) > from + 1e-6);
+      const top = Math.max(...s.map((c) => c.track));
+      let track = -1;
+      for (let t = top + 1; t < BF.TRACKS && track < 0; t++) if (free(t)) track = t;
+      for (let t = 0; t <= top && track < 0; t++) if (free(t)) track = t;
+      if (track < 0) throw new Error('No free playlist track for the rendered clip.');
+      const clip = { id: BF.uid('c'), kind: 'audio', track, start: from, len: 0, sampleId: id, mode: 'resample', speed: 1, pitch: 0, srcBpm: p.bpm, gain: 1 };
+      const ids = new Set(s.map((c) => c.id));
+      BF.commit((q) => { q.samples[id] = sample; q.clips.forEach((c) => { if (ids.has(c.id)) c.muted = true; }); q.clips.push(clip); });
+      P.sel = new Set([clip.id]); markSel(); renderPanel();
+      BF.ui.toast(`Rendered to an audio clip on ${p.tracks[track].name}. The original clips are muted (Alt+Shift+M to unmute).`);
+    } catch (e) {
+      BF.ui.toast(e.message || String(e), true);
+    } finally { BF.ui.busy(null); }
+  };
+
   // ---------- selected audio clip panel ----------
   function renderPanel() {
     const p = BF.project;
     const c = P.sel.size === 1 ? p.clips.find((x) => P.sel.has(x.id) && x.kind === 'audio') : null;
-    panel.hidden = !c;
+    const any = p.clips.some((x) => P.sel.has(x.id) && (x.kind === 'pattern' || x.kind === 'audio'));
+    panel.hidden = !c && !any;
     panel.textContent = '';
-    if (!c) return;
+    const rend = document.createElement('button'); rend.className = 'btn small'; rend.textContent = '⤓ Render to audio';
+    rend.title = 'Turn the selected clips into one audio clip (consolidate). The originals are muted, not deleted.';
+    rend.addEventListener('click', () => P.renderToAudio());
+    if (!c) {
+      if (!any) return;
+      const t = document.createElement('strong'); t.textContent = `${P.sel.size} clip${P.sel.size > 1 ? 's' : ''} selected`;
+      panel.append(t, rend);
+      return;
+    }
     const s = p.samples[c.sampleId];
     const name = document.createElement('strong'); name.textContent = s ? s.name : 'Audio';
     const mode = document.createElement('select');
@@ -716,7 +761,7 @@
     const editA = document.createElement('button'); editA.className = 'btn small'; editA.textContent = '✎ Edit audio…';
     editA.title = 'Open this audio in the audio editor (trim, cut, reverse, fades, normalize)';
     editA.addEventListener('click', () => BF.sampleEditor.open(c.sampleId));
-    panel.append(name, mode, speed.el, pitch.el, gain.el, pan.el, fadeIn.el, fadeOut.el, trim.el, rev, bpmL, guess, prev, editA, hint);
+    panel.append(name, mode, speed.el, pitch.el, gain.el, pan.el, fadeIn.el, fadeOut.el, trim.el, rev, bpmL, guess, prev, editA, rend, hint);
   }
 
   // ---------- drawing helpers ----------

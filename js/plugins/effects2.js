@@ -1,4 +1,5 @@
-/* effects2.js: more effect plugins (all original): Sidechain Ducker, Phaser, Flanger, Stereo Width, Volume Shaper.
+/* effects2.js: more effect plugins (all original): Sidechain Ducker, Phaser, Flanger, Stereo Width, Volume Shaper,
+ * Multiband Compressor.
  * The ducker listens to another mixer insert: audio.js connects that insert's output to `sidechainInput`. */
 (function () {
   'use strict';
@@ -178,6 +179,74 @@
           else { vca.gain.value = 1 - d; smooth(ctx, amt.gain, d); smooth(ctx, panAmt.gain, 0); }
         },
         dispose() { try { lfo.stop(); } catch { /* */ } off(input, vca, pan, output, lfo, amt, panAmt); },
+      };
+    },
+  });
+
+  // ---------- Multiband Compressor: 3 bands (Linkwitz-Riley 24 dB crossovers), a compressor and gain per band ----------
+  BF.plugins.register({
+    id: 'multiband', name: 'Multiband Compressor', kind: 'effect',
+    params: [
+      { id: 'xlow', name: 'Low / mid', type: 'knob', min: 40, max: 1000, default: 160, curve: 'log', fmt: U.hz },
+      { id: 'xhigh', name: 'Mid / high', type: 'knob', min: 1000, max: 12000, default: 3500, curve: 'log', fmt: U.hz },
+      { id: 'tlow', name: 'Low thresh', type: 'knob', min: -60, max: 0, default: -18, fmt: U.db },
+      { id: 'tmid', name: 'Mid thresh', type: 'knob', min: -60, max: 0, default: -18, fmt: U.db },
+      { id: 'thigh', name: 'High thresh', type: 'knob', min: -60, max: 0, default: -18, fmt: U.db },
+      { id: 'ratio', name: 'Ratio', type: 'knob', min: 1, max: 20, default: 3, curve: 'log', fmt: (v) => `${v.toFixed(1)}:1` },
+      { id: 'attack', name: 'Attack', type: 'knob', min: 0.0005, max: 0.3, default: 0.008, curve: 'log', fmt: U.sec },
+      { id: 'release', name: 'Release', type: 'knob', min: 0.02, max: 1.5, default: 0.18, curve: 'log', fmt: U.sec },
+      { id: 'glow', name: 'Low gain', type: 'knob', min: -18, max: 18, default: 0, fmt: U.db },
+      { id: 'gmid', name: 'Mid gain', type: 'knob', min: -18, max: 18, default: 0, fmt: U.db },
+      { id: 'ghigh', name: 'High gain', type: 'knob', min: -18, max: 18, default: 0, fmt: U.db },
+      { id: 'output', name: 'Output', type: 'knob', min: -18, max: 18, default: 0, fmt: U.db },
+    ],
+    presets: {
+      'Gentle glue': {},
+      'Master punch': { tlow: -20, tmid: -16, thigh: -14, ratio: 2.5, attack: 0.012, release: 0.15, glow: 1.5, ghigh: 1.5, output: 1 },
+      'Tame harsh highs': { thigh: -30, ratio: 5, attack: 0.002, release: 0.1, tlow: 0, tmid: 0 },
+      'Tight low end': { xlow: 120, tlow: -26, ratio: 6, attack: 0.02, release: 0.12, tmid: 0, thigh: 0, glow: 2 },
+      'Loud & bright': { tlow: -24, tmid: -22, thigh: -22, ratio: 4, glow: 2, gmid: 1, ghigh: 3, output: 2 },
+    },
+    create(ctx) {
+      const input = ctx.createGain(), output = ctx.createGain();
+      // WebAudio's lowpass/highpass Q is in dB: -3.01 dB = Butterworth, two in a row = a 24 dB Linkwitz-Riley slope
+      const bq = (type) => { const f = ctx.createBiquadFilter(); f.type = type; f.Q.value = -3.0103; return f; };
+      const chain = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n; };
+      // low = LP1 LP1 ; mid = HP1 HP1 LP2 LP2 ; high = HP2 HP2 ; low and high also get the other crossover as an
+      // all-pass, so the three bands stay in phase and add back up flat
+      const low = [bq('lowpass'), bq('lowpass')], mid = [bq('highpass'), bq('highpass'), bq('lowpass'), bq('lowpass')], high = [bq('highpass'), bq('highpass')];
+      const apLow = [ctx.createBiquadFilter()], apHigh = [ctx.createBiquadFilter()];
+      [...apLow, ...apHigh].forEach((f) => { f.type = 'allpass'; f.Q.value = Math.SQRT1_2; });
+      const useWorklet = !!ctx.__bfWorklets;
+      const bands = [[...low, apLow[0]], mid, [...high, apHigh[0]]].map((f) => {
+        const vca = ctx.createGain(), g = ctx.createGain();
+        let comp = null;
+        if (useWorklet) {
+          comp = new AudioWorkletNode(ctx, 'bf-comp', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+          vca.gain.value = 0; // the gain computer's output (linear gain) drives it
+          f[f.length - 1].connect(comp).connect(vca.gain);
+        }
+        chain(input, ...f, vca, g, output);
+        return { f, comp, vca, g };
+      });
+      return {
+        input, output,
+        set(p) {
+          const xl = Math.min(p.xlow, p.xhigh * 0.8);
+          low.forEach((f) => { f.frequency.value = xl; }); mid[0].frequency.value = xl; mid[1].frequency.value = xl;
+          mid[2].frequency.value = p.xhigh; mid[3].frequency.value = p.xhigh; high.forEach((f) => { f.frequency.value = p.xhigh; });
+          apLow[0].frequency.value = p.xhigh; apHigh[0].frequency.value = xl;
+          [[p.tlow, p.glow], [p.tmid, p.gmid], [p.thigh, p.ghigh]].forEach(([t, gdb], i) => {
+            const b = bands[i];
+            if (b.comp) {
+              const P = (n) => b.comp.parameters.get(n);
+              P('threshold').value = t; P('ratio').value = p.ratio; P('attack').value = p.attack; P('release').value = p.release; P('knee').value = 6;
+            }
+            smooth(ctx, b.g.gain, U.dbToGain(gdb));
+          });
+          smooth(ctx, output.gain, U.dbToGain(p.output));
+        },
+        dispose() { off(input, output, ...bands.flatMap((b) => [...b.f, b.vca, b.g, ...(b.comp ? [b.comp] : [])])); },
       };
     },
   });

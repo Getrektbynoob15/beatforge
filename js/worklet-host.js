@@ -4,7 +4,7 @@
  *    that from a blob URL);
  *  - loaded with audioWorklet.addModule(url) (the website, where the security policy forbids blob scripts),
  *    it registers the processors.
- * Processors: bf-envelope (sidechain ducker), bf-recorder (audio input capture), and the community plugin host
+ * Processors: bf-envelope (sidechain ducker), bf-comp (multiband compressor), bf-recorder (audio input capture), and the community plugin host
  * (__bfDefine), which runs approved plugins: their code only ever sees numbers in and numbers out. */
 (function () {
   function audioThread() {
@@ -39,6 +39,40 @@
       }
     }
     registerProcessor('bf-envelope', BfEnvelope);
+
+    // ---------- compressor gain computer (Multiband Compressor): input = signal, output = linear gain ----------
+    // soft-knee, peak detection, no automatic makeup gain (the plugin's own gain knobs set the level)
+    class BfComp extends AudioWorkletProcessor {
+      static get parameterDescriptors() {
+        return [
+          { name: 'threshold', defaultValue: -18, minValue: -80, maxValue: 0, automationRate: 'k-rate' },
+          { name: 'ratio', defaultValue: 3, minValue: 1, maxValue: 50, automationRate: 'k-rate' },
+          { name: 'attack', defaultValue: 0.01, minValue: 0.0001, maxValue: 1, automationRate: 'k-rate' },
+          { name: 'release', defaultValue: 0.2, minValue: 0.005, maxValue: 3, automationRate: 'k-rate' },
+          { name: 'knee', defaultValue: 6, minValue: 0, maxValue: 30, automationRate: 'k-rate' },
+        ];
+      }
+      constructor() { super(); this.gr = 0; }
+      process(inputs, outputs, p) {
+        const out = outputs[0][0]; const inp = inputs[0];
+        const T = p.threshold[0], R = p.ratio[0], W = p.knee[0];
+        const a = Math.exp(-1 / (p.attack[0] * sampleRate)), r = Math.exp(-1 / (p.release[0] * sampleRate));
+        let gr = this.gr;
+        for (let i = 0; i < out.length; i++) {
+          let x = 0;
+          for (let c = 0; c < inp.length; c++) { const v = Math.abs(inp[c][i]); if (v > x) x = v; }
+          const xd = x > 1e-6 ? 20 * Math.log10(x) : -120, o = xd - T;
+          let want = 0; // gain change in dB (<= 0)
+          if (2 * o > W) want = o / R - o;
+          else if (W > 0 && 2 * o > -W) { const k = o + W / 2; want = (1 / R - 1) * k * k / (2 * W); }
+          gr = want < gr ? a * gr + (1 - a) * want : r * gr + (1 - r) * want;
+          out[i] = Math.pow(10, gr / 20);
+        }
+        this.gr = gr;
+        return true;
+      }
+    }
+    registerProcessor('bf-comp', BfComp);
 
     // ---------- audio input capture ----------
     class BfRecorder extends AudioWorkletProcessor {

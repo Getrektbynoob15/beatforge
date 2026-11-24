@@ -169,7 +169,7 @@
 
   // ---------- mapping FL things to BeatForge ----------
   const FX_MAP = [
-    [/limiter|maximus|soft ?clip|clipper/i, 'limiter'], [/compress|glue|ott|multiband/i, 'compressor'],
+    [/maximus|multiband|\bott\b/i, 'multiband'], [/limiter|soft ?clip|clipper/i, 'limiter'], [/compress|glue/i, 'compressor'],
     [/eq|equali[sz]er|parametric/i, 'eq'], [/reverb|reeverb|valhalla|room|hall/i, 'reverb'], [/delay|echo/i, 'delay'],
     [/chorus/i, 'chorus'], [/flang/i, 'flanger'], [/phas/i, 'phaser'], [/dist|blood|wave ?shap|satur|overdrive|fast ?dist|decimator|bitcrush/i, 'distortion'],
     [/filter|love ?philter|passive/i, 'filter'], [/stereo|width|shaper/i, 'width'], [/peak ?controller|sidechain|kickstart|lfo ?tool|volume ?shaper/i, 'shaper'],

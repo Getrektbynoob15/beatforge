@@ -158,6 +158,7 @@
       mute: !!c.mute,
       ...(typeof c.group === 'string' && c.group.trim() ? { group: str(c.group, '', 20) } : {}),
       ...(c.zip ? { zip: true } : {}),
+      ...(c.arp && ['up', 'down', 'updown', 'random'].includes(c.arp.mode) ? { arp: { mode: c.arp.mode, time: String(Object.keys(BF.ARP_TIMES || {}).includes(String(c.arp.time)) ? c.arp.time : '1'), range: Math.round(clamp(c.arp.range, 1, 4, 1)), gate: clamp(c.arp.gate, 0.05, 1, 0.8) } } : {}),
       insert: Math.round(clamp(c.insert, 0, BF.INSERTS, 0)),
     }));
     const chIds = new Set(p.channels.map((c) => c.id));

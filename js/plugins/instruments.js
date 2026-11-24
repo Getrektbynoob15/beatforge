@@ -116,6 +116,13 @@
       { id: 'release', name: 'Release', type: 'knob', min: 0.005, max: 4, default: 0.05, curve: 'log', fmt: U.sec },
       { id: 'reverse', name: 'Reverse', type: 'toggle', default: false },
       { id: 'level', name: 'Level', type: 'knob', min: 0, max: 1.5, default: 1, fmt: U.pct },
+      { id: 'loop', name: 'Loop', type: 'toggle', default: false },
+      { id: 'loopStart', name: 'Loop start', type: 'knob', min: 0, max: 0.99, default: 0, fmt: U.pct },
+      { id: 'loopEnd', name: 'Loop end', type: 'knob', min: 0.01, max: 1, default: 1, fmt: U.pct },
+      { id: 'decay', name: 'Decay', type: 'knob', min: 0.01, max: 6, default: 6, curve: 'log', fmt: U.sec },
+      { id: 'sustain', name: 'Sustain', type: 'knob', min: 0, max: 1, default: 1, fmt: U.pct },
+      { id: 'cutoff', name: 'Filter', type: 'knob', min: 40, max: 20000, default: 20000, curve: 'log', fmt: (v) => (v >= 19900 ? 'Open' : U.hz(v)) },
+      { id: 'reso', name: 'Resonance', type: 'knob', min: 0, max: 20, default: 0.7 },
     ],
     play(ctx, out, p, t, key, vel, dur) {
       if (!p.sample) return;
@@ -124,10 +131,13 @@
       if (p.reverse) buf = BF.audio.reversed(p.sample);
       const src = ctx.createBufferSource();
       src.buffer = buf;
-      src.playbackRate.value = U.semis(key - p.root);
+      const rate = U.semis(key - p.root);
+      src.playbackRate.value = rate;
       const offset = p.start * buf.duration;
-      const natural = (buf.duration - offset) / src.playbackRate.value;
-      const len = p.oneshot ? natural : Math.min(natural, dur + p.release);
+      const loops = p.loop && !p.oneshot && p.loopEnd > p.loopStart + 0.005;
+      if (loops) { src.loop = true; src.loopStart = Math.max(offset, p.loopStart * buf.duration); src.loopEnd = p.loopEnd * buf.duration; }
+      const natural = (buf.duration - offset) / rate;
+      const len = loops ? dur + p.release : p.oneshot ? natural : Math.min(natural, dur + p.release);
       if (len <= 0.002) return;
       const g = ctx.createGain();
       const peak = vel * p.level;
@@ -135,9 +145,17 @@
       const r = p.oneshot ? Math.min(0.004, len / 2) : Math.min(p.release, len / 2);
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(peak, t + a);
-      g.gain.setValueAtTime(peak, t + len - r);
-      g.gain.linearRampToValueAtTime(0, t + len);
-      src.connect(g).connect(out);
+      if (p.sustain < 0.999 && p.decay < 5.99) { // decay to the sustain level, then release
+        g.gain.setTargetAtTime(peak * p.sustain, t + a, p.decay / 3);
+        g.gain.setTargetAtTime(0, t + len - r, r / 5);
+      } else {
+        g.gain.setValueAtTime(peak, t + len - r);
+        g.gain.linearRampToValueAtTime(0, t + len);
+      }
+      let head = g;
+      if (p.cutoff < 19900) { const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = p.cutoff; lp.Q.value = p.reso; lp.connect(g); head = lp; }
+      g.connect(out);
+      src.connect(head);
       src.start(t, offset);
       src.stop(t + len + 0.01);
     },

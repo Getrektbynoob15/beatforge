@@ -354,3 +354,7 @@ input[type=range] { accent-color: var(--accent); }
 .collab-join { display: flex; gap: 8px; margin-top: 6px; }
 .collab-join input { flex: 1; text-transform: uppercase; letter-spacing: .2em; font-weight: 700; }
 .collab-dlg { width: min(460px, 92vw); }
+
+/* channel arpeggiator (plugin editor) */
+.ed-arp { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line, rgba(255,255,255,.08)); }
+.ed-arp h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; opacity: .8; text-transform: uppercase; letter-spacing: .04em; }

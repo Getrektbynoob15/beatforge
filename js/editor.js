@@ -119,12 +119,45 @@
       controls.set('__pitch', pitch);
     }
     body.append(grid);
+    if (def.kind === 'instrument') body.append(arpSection(cur.obj));
   };
+
+  /** Channel arpeggiator (plays held notes/chords one after another). Stored on the channel as ch.arp. */
+  const ARP_DEFS = [
+    { id: 'mode', name: 'Mode', type: 'select', default: 'off', options: [['off', 'Off'], ['up', 'Up'], ['down', 'Down'], ['updown', 'Up and down'], ['random', 'Random']] },
+    { id: 'time', name: 'Time', type: 'select', default: '1', options: () => Object.entries(BF.ARP_TIMES) },
+    { id: 'range', name: 'Range', type: 'knob', min: 1, max: 4, default: 1, step: 1, fmt: (v) => `${v} oct` },
+    { id: 'gate', name: 'Gate', type: 'knob', min: 0.05, max: 1, default: 0.8, fmt: (v) => `${Math.round(v * 100)}%` },
+  ];
+  function arpSection(ch) {
+    const box = document.createElement('div');
+    box.className = 'ed-arp';
+    const h = document.createElement('h4'); h.textContent = 'Arpeggiator';
+    h.title = 'Hold a chord in the piano roll and the arpeggiator plays its notes one after another';
+    box.append(h);
+    const row = document.createElement('div'); row.className = 'ed-grid';
+    const a = ch.arp || { mode: 'off', time: '1', range: 1, gate: 0.8 };
+    ARP_DEFS.forEach((d0) => {
+      const d = { ...d0, options: typeof d0.options === 'function' ? d0.options() : d0.options };
+      const ctl = BF.ui.paramControl(d, a[d.id] ?? d.default, (v) => {
+        BF.commit((p) => {
+          const c = locate(p);
+          const next = { ...(c.arp || { mode: 'off', time: '1', range: 1, gate: 0.8 }), [d.id]: v };
+          if (next.mode === 'off') delete c.arp; else c.arp = next;
+        }, `arp-${E.target.id}-${d.id}`, 'param');
+      });
+      controls.set(`__arp_${d.id}`, ctl);
+      row.append(ctl.el);
+    });
+    box.append(row);
+    return box;
+  }
 
   /** Refresh knob positions (after undo/redo) without rebuilding. */
   E.sync = function () {
     const cur = current();
     if (!cur) { E.render(); return; }
-    controls.forEach((ctl, id) => ctl.set(id === '__pitch' ? cur.obj.pitch : cur.obj.params[id]));
+    const arp = cur.obj.arp || { mode: 'off', time: '1', range: 1, gate: 0.8 };
+    controls.forEach((ctl, id) => ctl.set(id === '__pitch' ? cur.obj.pitch : id.startsWith('__arp_') ? arp[id.slice(6)] : cur.obj.params[id]));
   };
 })();

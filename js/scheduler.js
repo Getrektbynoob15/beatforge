@@ -31,6 +31,50 @@
     return Object.keys(x).length ? x : null;
   }
 
+  /** Channel arpeggiator: turns held notes/chords into a run of single notes (like a hardware arp). Positions are in
+   * steps (16ths). Deterministic, so live playback and export sound the same; cached per note list. */
+  const ARP_TIMES = { '0.5': '1/32', '0.6667': '1/16 T', '1': '1/16', '1.3333': '1/8 T', '2': '1/8', '2.6667': '1/4 T', '4': '1/4', '8': '1/2' };
+  BF.ARP_TIMES = ARP_TIMES;
+  const arpCache = new WeakMap();
+  BF.arpNotes = function (notes, arp, ptLen) {
+    const sig = `${arp.mode}|${arp.time}|${arp.range}|${arp.gate}|${ptLen}`;
+    const hit = arpCache.get(notes);
+    if (hit && hit.sig === sig) return hit.out;
+    const step = Math.max(0.25, +arp.time || 1);
+    const range = Math.max(1, Math.min(4, Math.round(arp.range || 1)));
+    const gate = Math.max(0.05, Math.min(1, arp.gate ?? 0.8));
+    const src = notes.filter((n) => !n.mute && !n.slide && n.start < ptLen).sort((a, b) => a.start - b.start);
+    const out = [];
+    let t = src.length ? src[0].start : Infinity, prevSet = '', k = 0;
+    while (t < ptLen - 1e-6 && out.length < 20000) {
+      const held = src.filter((n) => n.start <= t + 1e-6 && n.start + n.len > t + 1e-6);
+      if (!held.length) {
+        const next = src.find((n) => n.start > t + 1e-6);
+        if (!next) break;
+        t = next.start; continue;
+      }
+      const keys = [...new Set(held.map((n) => n.key))].sort((a, b) => a - b);
+      const set = keys.join(',');
+      if (set !== prevSet) { k = 0; prevSet = set; }
+      let seq = [];
+      for (let o = 0; o < range; o++) keys.forEach((x) => seq.push(x + 12 * o));
+      if (arp.mode === 'down') seq.reverse();
+      else if (arp.mode === 'updown' && seq.length > 2) seq = seq.concat(seq.slice(1, -1).reverse());
+      let key;
+      if (arp.mode === 'random') { const h = Math.sin((t + 1) * 12.9898 + seq.length * 78.233) * 43758.5453; key = seq[Math.floor((h - Math.floor(h)) * seq.length)]; }
+      else key = seq[k % seq.length];
+      const from = held.find((n) => n.key === key) || held.find((n) => n.key % 12 === key % 12) || held[0];
+      const n = { id: `arp${out.length}`, key, vel: from.vel, start: t, len: Math.max(0.1, step * gate) };
+      if (from.pan) n.pan = from.pan;
+      if (from.fine) n.fine = from.fine;
+      out.push(n);
+      k++;
+      t += step;
+    }
+    arpCache.set(notes, { sig, out });
+    return out;
+  };
+
   function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false) {
     const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
     for (const ch of p.channels) {
@@ -44,7 +88,8 @@
           BF.audio.note(g, ch, beatTime(beat), 60, 0.8, secPerBeat / 4, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
         }
       }
-      const notes = pt.notes[ch.id];
+      let notes = pt.notes[ch.id];
+      if (notes && ch.arp && ch.arp.mode && ch.arp.mode !== 'off') notes = BF.arpNotes(notes, ch.arp, pt.length);
       if (notes) {
         const slides = notes.filter((n) => n.slide && !n.mute);
         for (const n of notes) {
@@ -260,6 +305,9 @@
     if (BF.community) BF.community.flush(ctx);
     return ctx.startRendering();
   }
+
+  /** Render beats [from, to) of project `p` (song mode) to one buffer; used to turn clips into an audio clip. */
+  BF.renderRange = (p, from, to, rate = 44100, tail = 0) => renderPart(p, 'song', rate, from, to, tail);
 
   /** Render the song (or the current pattern) offline. Long songs are cut into parts that render at the same time on
    * several CPU cores (each part starts a few seconds early so notes, echoes and reverb tails carry over, and parts are
