@@ -39,7 +39,7 @@
       A.graph = A.buildGraph(A.ctx);
       A.sync(A.graph, BF.project);
       // once the processors are loaded, rebuild effect chains so plugins that need them use them
-      A.loadWorklets(A.ctx).then(() => { A.graph.inserts.forEach((ins) => { ins.fxKey = null; ins.fx.forEach((x) => x.inst.dispose()); ins.fx = []; }); A.sync(A.graph, BF.project); }).catch((e) => console.warn('worklet', e));
+      A.loadWorklets(A.ctx).then(() => { A.graph.inserts.forEach((ins) => { ins.fxKey = null; ins.fx.forEach((x) => x.inst.dispose()); ins.fx = []; }); A.sync(A.graph, BF.project); if (BF.vst) BF.vst.sync(); /* start VST instruments now, not at the first project change */ }).catch((e) => console.warn('worklet', e));
     }
     if (A.ctx.state === 'suspended') A.ctx.resume();
     return A.ctx;

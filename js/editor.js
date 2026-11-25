@@ -187,7 +187,7 @@
       p.textContent = BF.vst && BF.vst.available() ? `This project uses "${cur.obj.vstName || 'a VST plugin'}", which was not found on this computer. Install it, then click VST plugins… → Scan again. Its settings are kept.` : 'VST plugins work in the BeatForge desktop app. The channel and its settings are kept.';
       box.append(p); return box;
     }
-    if (!info) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = `Loading ${def.name}…`; box.append(p); return box; }
+    if (!info) { BF.audio.ensure(); if (BF.vst.sync) BF.vst.sync(); const p = document.createElement('p'); p.className = 'empty'; p.textContent = `Loading ${def.name}…`; box.append(p); return box; } // audio not started yet: start it, which starts the plugin
     if (info.editor) {
       const open = document.createElement('button'); open.className = 'btn accent small'; open.textContent = `Open ${def.name}`;
       open.title = "Opens the plugin's own window";
