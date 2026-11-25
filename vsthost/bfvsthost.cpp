@@ -208,14 +208,8 @@ struct Lib {
     return dlsym(h, name);
 #endif
   }
-  ~Lib() {
-    if (!h) return;
-#ifdef _WIN32
-    FreeLibrary((HMODULE)h);
-#else
-    dlclose(h);
-#endif
-  }
+  // never unloaded: many plugins (JUCE ones like Surge XT) leave threads or state behind and hang or crash when
+  // their library is unloaded and loaded again in the same process. Loading the same file again reuses it.
 };
 
 // ---------------------------------------------------------------- one loaded plugin
@@ -405,7 +399,7 @@ static std::string selfPath() {
 }
 
 // run the probe child with a time limit; returns its JSON list ("" if it crashed or hung)
-static std::string runProbe(const std::string& path, int ms) {
+static std::string runProbe(const std::string& path, int ms, const char* mode = "--probe2") {
   std::string self = selfPath(), out;
   if (self.empty()) return "";
   auto t0 = std::chrono::steady_clock::now();
@@ -419,7 +413,7 @@ static std::string runProbe(const std::string& path, int ms) {
   STARTUPINFOW si{}; si.cb = sizeof si; si.dwFlags = STARTF_USESTDHANDLES; si.hStdInput = nul; si.hStdOutput = w; si.hStdError = nul;
   PROCESS_INFORMATION pi{};
   auto wide = [](const std::string& s) { int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0); std::wstring o(n > 0 ? n : 1, L'\0'); MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &o[0], n); o.resize(n > 0 ? n - 1 : 0); return o; };
-  std::wstring cmd = L"\"" + wide(self) + L"\" --probe2 \"" + wide(path) + L"\"";
+  std::wstring cmd = L"\"" + wide(self) + L"\" " + wide(mode) + L" \"" + wide(path) + L"\"";
   BOOL ok = CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
   CloseHandle(w); CloseHandle(nul);
   if (!ok) { CloseHandle(r); return ""; }
@@ -441,7 +435,7 @@ static std::string runProbe(const std::string& path, int ms) {
     int nul = open("/dev/null", O_RDWR);
     dup2(nul, 0); dup2(pfd[1], 1); dup2(nul, 2);
     close(pfd[0]); close(pfd[1]);
-    execl(self.c_str(), self.c_str(), "--probe2", path.c_str(), (char*)nullptr);
+    execl(self.c_str(), self.c_str(), mode, path.c_str(), (char*)nullptr);
     _exit(127);
   }
   close(pfd[1]);
@@ -662,7 +656,7 @@ static void findVst2(const std::string& root, std::vector<std::string>& out) {
   }
 }
 
-// scan cache: one line per VST2 file: path \t stamp \t json
+// scan cache: one line per plugin file (VST2 or VST3): path \t stamp \t json
 typedef std::map<std::string, std::pair<std::string, std::string>> Cache;
 static Cache readCache() {
   Cache m;
@@ -686,8 +680,36 @@ static void writeCache(const Cache& m) {
 static std::string stampOf(const std::string& p) {
   std::error_code ec;
   auto t = fs::last_write_time(fs::u8path(p), ec);
-  uintmax_t sz = fs::is_directory(fs::u8path(p), ec) ? 0 : fs::file_size(fs::u8path(p), ec);
+  uintmax_t sz = 0;
+  if (fs::is_directory(fs::u8path(p), ec)) { // a bundle (.vst3 / .vst folder): the newest file inside and the total size
+    auto it = fs::recursive_directory_iterator(fs::u8path(p), fs::directory_options::skip_permission_denied, ec);
+    for (int n = 0; !ec && it != fs::recursive_directory_iterator() && n < 5000; it.increment(ec), n++) {
+      std::error_code e2;
+      if (!it->is_regular_file(e2)) continue;
+      auto ft = it->last_write_time(e2); if (!e2 && ft > t) t = ft;
+      sz += it->file_size(e2);
+    }
+  } else sz = fs::file_size(fs::u8path(p), ec);
   return std::to_string((long long)t.time_since_epoch().count()) + ":" + std::to_string((unsigned long long)sz);
+}
+
+// probe child: list the plugins in one VST3 module, then exit (runs in its own process)
+static int probe3(const std::string& path) {
+  std::ostringstream o; o << "[";
+  std::string err;
+  if (auto m = VST3::Hosting::Module::create(path, err)) {
+    bool first = true;
+    for (auto& ci : m->getFactory().classInfos()) {
+      if (ci.category() != kVstAudioEffectClass) continue;
+      if (!first) o << ","; first = false;
+      o << "{\"path\":" << jstr(path) << ",\"cid\":" << jstr(ci.ID().toString()) << ",\"name\":" << jstr(ci.name())
+        << ",\"vendor\":" << jstr(ci.vendor()) << ",\"kind\":" << jstr(kindOf(ci)) << ",\"sub\":" << jstr(ci.subCategoriesString()) << ",\"fmt\":\"VST3\"}";
+    }
+  }
+  o << "]";
+  std::string s = "\nBFPROBE " + o.str() + "\n";
+  fwrite(s.data(), 1, s.size(), gOut); fflush(gOut);
+  std::_Exit(0);
 }
 
 static void cmdScan(const std::string& rid, const std::vector<std::string>& f) {
@@ -711,26 +733,20 @@ static void cmdScan(const std::string& rid, const std::vector<std::string>& f) {
   std::sort(v2.begin(), v2.end()); v2.erase(std::unique(v2.begin(), v2.end()), v2.end());
   std::ostringstream o; o << "{\"id\":" << jstr(rid) << ",\"plugins\":[";
   bool first = true;
-  for (auto& p : paths) {
-    std::string err;
-    auto m = VST3::Hosting::Module::create(p, err);
-    if (!m) { logEv("skip " + p + ": " + err); continue; }
-    for (auto& ci : m->getFactory().classInfos()) {
-      if (ci.category() != kVstAudioEffectClass) continue;
-      if (!first) o << ","; first = false;
-      o << "{\"path\":" << jstr(p) << ",\"cid\":" << jstr(ci.ID().toString()) << ",\"name\":" << jstr(ci.name())
-        << ",\"vendor\":" << jstr(ci.vendor()) << ",\"kind\":" << jstr(kindOf(ci)) << ",\"sub\":" << jstr(ci.subCategoriesString()) << ",\"fmt\":\"VST3\"}";
-    }
-  }
+  // every plugin file is looked at in its own short-lived process (never loaded into this one just to read its
+  // name: a plugin that crashes or hangs then can't take the host down, and plugins that hate being unloaded and
+  // loaded again work). Results are cached by file date and size.
   Cache cache = readCache(), next;
-  for (auto& p : v2) {
+  auto probe = [&](const std::string& p, const char* mode, int ms) {
     std::string st = stampOf(p), list;
     auto c = cache.find(p);
     if (c != cache.end() && c->second.first == st) list = c->second.second;
-    else { list = runProbe(p, 15000); if (list.empty()) { logEv("skip " + p + ": crashed, hung or not a 64-bit plugin"); list = "[]"; } }
+    else { list = runProbe(p, ms, mode); if (list.empty()) { logEv("skip " + p + ": crashed, hung or not a 64-bit plugin"); list = "[]"; } }
     next[p] = {st, list};
     if (list.size() > 2) { if (!first) o << ","; first = false; o << list.substr(1, list.size() - 2); }
-  }
+  };
+  for (auto& p : paths) probe(p, "--probe3", 30000);
+  for (auto& p : v2) probe(p, "--probe2", 15000);
   writeCache(next);
   o << "]}";
   writeFrame(o.str());
@@ -798,10 +814,13 @@ static std::string load2(Inst& in, const std::string& path, const std::string& c
   return "";
 }
 
+static std::map<std::string, VST3::Hosting::Module::Ptr> gModules; // VST3 modules stay loaded (see Lib)
 static std::string load3(Inst& in, const std::string& path, const std::string& cid, std::ostringstream& o) {
   std::string err;
-  in.module = VST3::Hosting::Module::create(path, err);
-  if (!in.module) return "Could not load " + path + ": " + err;
+  auto& mod = gModules[path];
+  if (!mod) mod = VST3::Hosting::Module::create(path, err);
+  in.module = mod;
+  if (!in.module) { gModules.erase(path); return "Could not load " + path + ": " + err; }
   auto factory = in.module->getFactory();
   for (auto& ci : factory.classInfos()) {
     if (ci.category() != kVstAudioEffectClass || ci.ID().toString() != cid) continue;
@@ -1131,13 +1150,17 @@ int main(int argc, char** argv) {
   _setmode(_fileno(stdin), _O_BINARY); _setmode(_fileno(stdout), _O_BINARY);
 #endif
   privateStdout();
-  if (argc >= 3 && std::string(argv[1]) == "--probe2") {
+  if (argc >= 3 && (std::string(argv[1]) == "--probe2" || std::string(argv[1]) == "--probe3")) {
+    bool v3 = std::string(argv[1]) == "--probe3";
+    std::string path = argv[2];
 #ifdef _WIN32
     // the path in UTF-16 (non-Latin letters)
     int wn = 0; LPWSTR* wa = CommandLineToArgvW(GetCommandLineW(), &wn);
-    if (wa && wn >= 3) { int m = WideCharToMultiByte(CP_UTF8, 0, wa[2], -1, nullptr, 0, nullptr, nullptr); std::string s(m > 0 ? m - 1 : 0, '\0'); if (m > 1) WideCharToMultiByte(CP_UTF8, 0, wa[2], -1, &s[0], m, nullptr, nullptr); return probe2(s); }
+    if (wa && wn >= 3) { int m = WideCharToMultiByte(CP_UTF8, 0, wa[2], -1, nullptr, 0, nullptr, nullptr); std::string s(m > 0 ? m - 1 : 0, '\0'); if (m > 1) WideCharToMultiByte(CP_UTF8, 0, wa[2], -1, &s[0], m, nullptr, nullptr); path = s; }
+    if (v3) OleInitialize(nullptr);
 #endif
-    return probe2(argv[2]);
+    if (v3) { gHost = new HostApplication(); PluginContextFactory::instance().setPluginContext(gHost); return probe3(path); }
+    return probe2(path);
   }
 #ifdef _WIN32
   gUiThread = GetCurrentThreadId();

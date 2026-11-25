@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const SHELL_API = 7; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part, 5: VST3 plugin host, 6: VST effects + knob automation, 7: VST2 + Mac plugin host)
+const SHELL_API = 8; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part, 5: VST3 plugin host, 6: VST effects + knob automation, 7: VST2 + Mac plugin host, 8: plugin host fix for JUCE plugins + load timeout)
 const REPO = 'Getrektbynoob15/beatforge';
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEVeewGzZ2Xthyx2YqibvO8vpwJie7J22oq9C1sjeQcM=

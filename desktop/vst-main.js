@@ -56,7 +56,9 @@ function start() {
       if (w) { waits.delete(h.id); w(h, b); }
     }
   });
+  const me = proc;
   proc.on('exit', () => {
+    if (proc !== me) return;
     proc = null;
     waits.forEach((w) => w({ error: 'The plugin host stopped (a plugin may have crashed).' }, Buffer.alloc(0)));
     waits.clear();
@@ -68,11 +70,20 @@ function start() {
   return true;
 }
 
-function call(fields, bin) {
+// ms: give up after this long. A plugin that hangs blocks the host, so the host is stopped (its plugins then show
+// "the plugin host stopped" and can be reloaded) instead of leaving BeatForge waiting forever.
+function call(fields, bin, ms = 0) {
   return new Promise((resolve) => {
     if (!start()) return resolve({ h: { error: 'VST plugins need the BeatForge Plugin Host, which is not part of this version for this computer.' }, b: null });
-    const id = `m${++seq}`;
-    waits.set(id, (h, b) => resolve({ h, b }));
+    const id = `m${++seq}`, p = proc;
+    let timer = null;
+    waits.set(id, (h, b) => { clearTimeout(timer); resolve({ h, b }); });
+    if (ms) timer = setTimeout(() => {
+      if (!waits.has(id)) return;
+      waits.delete(id);
+      resolve({ h: { error: `The plugin did not respond within ${Math.round(ms / 1000)} seconds, so the plugin host was restarted.` }, b: null });
+      try { p.kill(); } catch { /* gone */ }
+    }, ms);
     proc.stdin.write(frame([id, ...fields], bin));
   });
 }
@@ -109,7 +120,7 @@ function setup(getWin) {
           if (!INST.test(a.inst) || !/^[0-9A-F]{32}$/i.test(a.cid)) return { error: 'Bad request.' };
           if (!scanned.size) await scan();
           if (!scanned.has(a.path)) return { error: 'That plugin was not found in your VST plugin folders.' };
-          const r = await call(['load', a.inst, a.path, a.cid, num(a.rate), num(a.block || 512)]);
+          const r = await call(['load', a.inst, a.path, a.cid, num(a.rate), num(a.block || 512)], null, 60000);
           if (!r.h.error) loaded.add(a.inst);
           return r.h;
         }
@@ -117,7 +128,7 @@ function setup(getWin) {
         case 'getState': { if (!INST.test(a.inst)) return { error: 'Bad request.' }; const r = await call(['getstate', a.inst]); return r.h.error ? r.h : { state: r.b }; }
         case 'setState': { if (!INST.test(a.inst) || !a.state) return { error: 'Bad request.' }; return (await call(['setstate', a.inst], Buffer.from(a.state))).h; }
         case 'setParam': if (!INST.test(a.inst)) return { error: 'Bad request.' }; return (await call(['setparam', a.inst, String(a.id >>> 0), num(Math.min(1, Math.max(0, a.value)))])).h;
-        case 'edit': if (!INST.test(a.inst)) return { error: 'Bad request.' }; return (await call(['edit', a.inst, String(a.title || 'Plugin').replace(/[\t\r\n]/g, ' ').slice(0, 120)])).h;
+        case 'edit': if (!INST.test(a.inst)) return { error: 'Bad request.' }; return (await call(['edit', a.inst, String(a.title || 'Plugin').replace(/[\t\r\n]/g, ' ').slice(0, 120)], null, 30000)).h;
         case 'closeEdit': if (!INST.test(a.inst)) return { error: 'Bad request.' }; return (await call(['closeedit', a.inst])).h;
         case 'render': { // offline export: a whole block at once
           if (!INST.test(a.inst)) return { error: 'Bad request.' };
