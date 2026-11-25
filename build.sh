@@ -13,7 +13,7 @@ app() { # copy the web app + desktop shell into $1
   cp -r index.html style.css app.js js LICENSE "$1/"
   cp desktop/main.js desktop/preload.js desktop/vst-main.js desktop/package.json desktop/icon.png "$1/"
 }
-# the BeatForge Plugin Host (VST3), built from vsthost/ with the VST3 SDK (MIT, licence copied next to it)
+# the BeatForge Plugin Host (VST3 + VST2), built from vsthost/ with the VST3 SDK (MIT, licence copied next to it)
 vsthost/build.sh all >/dev/null
 VSTLIC=${VST3SDK:-$HOME/vendor/vst3sdk}/LICENSE.txt
 host() { # $1 = resources dir, $2 = binary name
@@ -79,6 +79,9 @@ for arch in x64 arm64; do
   rm -f "$res/default_app.asar"
   app "$res/app"
   cp desktop/icon.icns "$res/electron.icns"
+  # the Mac plugin host is built by GitHub Actions on a real Mac (.github/workflows/vsthost.yml); tools/fetch-mac-host.sh
+  if [ -f vsthost/build/mac/bfvsthost ]; then cp vsthost/build/mac/bfvsthost "$res/bfvsthost"; chmod 755 "$res/bfvsthost"; cp "$VSTLIC" "$res/VST3-SDK-LICENSE.txt"
+  else echo "NOTE: no Mac plugin host (run tools/fetch-mac-host.sh), the Mac build has no VST support"; fi
   python3 - "$out/BeatForge.app/Contents/Info.plist" "$VER" <<'PY'
 import plistlib, sys
 p, ver = sys.argv[1], sys.argv[2]

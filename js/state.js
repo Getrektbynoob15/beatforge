@@ -6,6 +6,7 @@
  *               start/len are in 16th steps; key is a MIDI note number; vel 0..1
  *   tracks[]    16 playlist tracks { id, name, mute }
  *   clips[]     playlist: { id, kind:'pattern'|'audio', track, start (beats), len (beats), patternId | sampleId, speed }
+ *               audio clips may have takes: [sampleId…] (loop/re-recorded takes of the same spot; sampleId = the one heard)
  *   mixer[]     0 = Master, 1..16 = inserts: { id, name, volume, pan, mute, solo, fx:[{id, plugin, params{}, bypass}] }
  *   samples{}   sampleId -> { name, mime, base64 }
  * Decoded audio lives in BF.audio.buffers, never in the project. */
@@ -260,6 +261,11 @@
         ...(+c.fadeOut > 0 ? { fadeOut: clamp(c.fadeOut, 0, 60, 0) } : {}),
         ...(Number.isFinite(+c.pan) && +c.pan !== 0 ? { pan: clamp(c.pan, -1, 1, 0) } : {}),
         ...(+c.trim > 0 ? { trim: clamp(c.trim, 0, 3600, 0) } : {}),
+        ...(Array.isArray(c.takes) ? (() => { // recorded takes of this spot (comping): the clip plays the one in sampleId
+          const t = [...new Set(c.takes.filter((x) => typeof x === 'string' && p.samples[x]))].slice(0, 32);
+          if (!t.includes(c.sampleId)) t.push(c.sampleId);
+          return t.length > 1 ? { takes: t } : {};
+        })() : {}),
       }),
     })).concat(autoClips);
     return p;

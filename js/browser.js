@@ -108,9 +108,9 @@
     if (BF.vst && BF.vst.available()) {
       const vi = BF.vst.plugins.filter((x) => x.kind === 'instrument'), ve = BF.vst.plugins.filter((x) => x.kind === 'effect');
       out.push({ name: 'Plugins · VST', items: [
-        { label: BF.vst.scanned ? 'VST plugins…' : 'VST plugins (looking…)', icon: '🔌', hint: 'Your VST3 plugins: add folders, scan again', use: () => BF.vst.open() },
-        ...vi.map((x) => ({ label: x.name, icon: '🎹', useLabel: 'Add as channel', hint: `${x.name} by ${x.vendor || '?'} (VST3 instrument): double-click to add a channel.`, use: () => BF.vst.addChannel(x) })),
-        ...ve.map((x) => ({ label: x.name, icon: '🔌', hint: `${x.name} by ${x.vendor || '?'} (VST3 effect): click to add it to the selected mixer insert.`, use: () => BF.vst.addEffect(x, BF.mixer.selected) })),
+        { label: BF.vst.scanned ? 'VST plugins…' : 'VST plugins (looking…)', icon: '🔌', hint: 'Your VST3 and VST2 plugins: add folders, scan again', use: () => BF.vst.open() },
+        ...vi.map((x) => ({ label: x.name, icon: '🎹', useLabel: 'Add as channel', hint: `${x.name} by ${x.vendor || '?'} (${x.fmt || 'VST3'} instrument): double-click to add a channel.`, use: () => BF.vst.addChannel(x) })),
+        ...ve.map((x) => ({ label: x.name, icon: '🔌', hint: `${x.name} by ${x.vendor || '?'} (${x.fmt || 'VST3'} effect): click to add it to the selected mixer insert.`, use: () => BF.vst.addEffect(x, BF.mixer.selected) })),
       ] });
     }
     out.push({ name: 'Effects', items: BF.plugins.list('effect').filter((d) => !d.ext && !d.vst).map((d) => ({

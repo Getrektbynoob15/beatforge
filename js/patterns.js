@@ -52,9 +52,47 @@
     });
   };
 
+  /** Split a pattern into one pattern per channel, each on its own playlist track (like a classic DAW's
+   *  "split by channel"). Every playlist clip of the pattern becomes one clip per channel, on tracks next to each other;
+   *  the original pattern stays in the list. */
+  PT.splitByChannel = function (id) {
+    const p0 = BF.project, src = p0.patterns.find((x) => x.id === id);
+    if (!src) return;
+    const used = p0.channels.filter((ch) => (src.steps[ch.id] || []).some(Boolean) || (src.notes[ch.id] || []).length);
+    if (used.length < 2) { BF.ui.toast('This pattern uses only one channel: nothing to split.'); return; }
+    const parts = used.slice(0, BF.TRACKS);
+    BF.commit((p) => {
+      const pt = p.patterns.find((x) => x.id === id);
+      const made = parts.map((ch) => {
+        const np = { id: BF.uid('p'), name: `${pt.name} · ${ch.name}`, color: pt.color, length: pt.length, steps: {}, notes: {} };
+        if (pt.steps[ch.id]) np.steps[ch.id] = [...pt.steps[ch.id]];
+        if (pt.notes[ch.id]) np.notes[ch.id] = pt.notes[ch.id].map((n) => ({ ...n, id: BF.uid('n') }));
+        return { np, ch };
+      });
+      p.patterns.splice(p.patterns.indexOf(pt) + 1, 0, ...made.map((m) => m.np));
+      const old = p.clips.filter((c) => c.kind === 'pattern' && c.patternId === id);
+      if (old.length) {
+        // the first block of free tracks (no other clip where these clips are), starting at the top clip's track
+        const others = p.clips.filter((c) => !old.includes(c));
+        const busy = (tr) => others.some((o) => o.track === tr && old.some((c) => o.start < c.start + c.len && c.start < o.start + BF.audio.clipBeats(o, p.bpm)));
+        const first = Math.min(...old.map((c) => c.track));
+        let base = -1;
+        for (let b = first; b + made.length <= BF.TRACKS && base < 0; b++) if (made.every((_, i) => !busy(b + i))) base = b;
+        if (base < 0) for (let b = 0; b + made.length <= BF.TRACKS && base < 0; b++) if (made.every((_, i) => !busy(b + i))) base = b;
+        if (base < 0) base = Math.max(0, Math.min(first, BF.TRACKS - made.length));
+        old.forEach((c) => made.forEach((m, i) => p.clips.push({ ...c, id: BF.uid('c'), track: Math.min(BF.TRACKS - 1, base + i), patternId: m.np.id })));
+        p.clips = p.clips.filter((c) => !old.includes(c));
+        made.forEach((m, i) => { const t = p.tracks[base + i]; if (t && /^Track \d+$/.test(t.name)) t.name = m.ch.name; });
+      }
+      p.currentPattern = made[0].np.id;
+    });
+    BF.ui.toast(`Split into ${parts.length} patterns, one per channel, each on its own track.`);
+  };
+
   PT.menu = (id) => [
     { label: 'Rename…', action: () => PT.rename(id) },
     { label: 'Clone', action: () => PT.clone(id) },
+    { label: 'Split by channel', action: () => PT.splitByChannel(id) },
     { label: 'Next colour', action: () => PT.color(id) },
     { label: 'Delete pattern', action: () => PT.del(id) },
   ];

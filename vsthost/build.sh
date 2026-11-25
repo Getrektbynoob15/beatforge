@@ -23,6 +23,27 @@ if [[ $what == all || $what == linux ]]; then
   g++ "${FLAGS[@]}" bfvsthost.cpp "${SRC[@]}" "$SDK/public.sdk/source/vst/hosting/module_linux.cpp" "$SDK/public.sdk/source/common/threadchecker_linux.cpp" -o "$OUT/bfvsthost" -ldl -lpthread -lstdc++fs
   strip "$OUT/bfvsthost"; echo "built $OUT/bfvsthost"
 fi
+if [[ $what == mac ]]; then # on a Mac (or the GitHub Actions macOS runner): universal binary, Apple Silicon + Intel
+  clang++ "${FLAGS[@]}" -arch arm64 -arch x86_64 -mmacosx-version-min=10.15 -fobjc-arc bfvsthost.cpp macui.mm "${SRC[@]}" \
+    "$SDK/public.sdk/source/vst/hosting/module_mac.mm" "$SDK/public.sdk/source/common/threadchecker_mac.mm" \
+    -framework Cocoa -framework CoreFoundation -o "$OUT/bfvsthost"
+  strip -x "$OUT/bfvsthost"; codesign -s - -f "$OUT/bfvsthost"; echo "built $OUT/bfvsthost (mac)"
+fi
+if [[ $what == test ]]; then # the VST2 test plugins (BeatForge's own tests, never shipped)
+  mkdir -p "$OUT/test2"
+  case "$(uname)" in
+    Linux) for v in Synth Gain; do d=; [[ $v == Synth ]] && d=-DSYNTH; g++ -std=c++17 -O2 -shared -fPIC $d test/bftest2.cpp -o "$OUT/test2/BFTest$v.so"; \
+             x86_64-w64-mingw32-g++-posix -std=c++17 -O2 -shared $d test/bftest2.cpp -static -o "$OUT/test2/BFTest$v.dll"; done
+           g++ -std=c++17 -O2 -shared -fPIC -DCRASH test/bftest2.cpp -o "$OUT/test2/BFTestCrash.so"; echo junk > "$OUT/test2/NotAPlugin.so"
+           x86_64-w64-mingw32-g++-posix -std=c++17 -O2 -shared -DCRASH test/bftest2.cpp -static -o "$OUT/test2/BFTestCrash.dll"; echo junk > "$OUT/test2/NotAPlugin.dll" ;;
+    Darwin) for v in Synth Gain; do d=; [[ $v == Synth ]] && d=-DSYNTH; b="$OUT/test2/BFTest$v.vst/Contents/MacOS"; mkdir -p "$b"; \
+             clang++ -std=c++17 -O2 -arch arm64 -arch x86_64 -bundle $d test/bftest2.cpp -o "$b/BFTest$v"; codesign -s - -f "$OUT/test2/BFTest$v.vst"; done
+             b="$OUT/test2/BFTestCrash.vst/Contents/MacOS"; mkdir -p "$b"; clang++ -std=c++17 -O2 -arch arm64 -arch x86_64 -bundle -DCRASH test/bftest2.cpp -o "$b/BFTestCrash"; codesign -s - -f "$OUT/test2/BFTestCrash.vst" ;;
+    *) for v in Synth Gain; do d=; [[ $v == Synth ]] && d=-DSYNTH; g++ -std=c++17 -O2 -shared $d test/bftest2.cpp -static -o "$OUT/test2/BFTest$v.dll"; done
+       g++ -std=c++17 -O2 -shared -DCRASH test/bftest2.cpp -static -o "$OUT/test2/BFTestCrash.dll"; echo junk > "$OUT/test2/NotAPlugin.dll" ;;
+  esac
+  echo "built test plugins in $OUT/test2"
+fi
 if [[ $what == all || $what == win ]]; then
   x86_64-w64-mingw32-g++-posix "${FLAGS[@]}" -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN bfvsthost.cpp "${SRC[@]}" "$SDK/public.sdk/source/vst/hosting/module_win32.cpp" "$SDK/public.sdk/source/common/threadchecker_win32.cpp" \
     -o "$OUT/bfvsthost.exe" -static -static-libgcc -static-libstdc++ -lole32 -luuid -lshell32 -luser32 -lgdi32 -mwindows 2>&1 | grep -v "^$" || true

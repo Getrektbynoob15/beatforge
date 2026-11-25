@@ -90,18 +90,64 @@
     const skip = Math.min(frames - 1, Math.max(0, Math.round((t.lat + Math.max(0, t.startTime - t.capturedFrom)) * ctx.sampleRate)));
     const trimmed = new AudioBuffer({ numberOfChannels: chans, length: frames - skip, sampleRate: ctx.sampleRate });
     for (let c = 0; c < chans; c++) trimmed.copyToChannel(buf.getChannelData(c).subarray(skip), c);
-    const wav = BF.encodeWav(trimmed);
-    const bytes = new Uint8Array(await wav.arrayBuffer());
-    const id = BF.uid('s');
-    const n = Object.values(BF.project.samples).filter((s) => s.name.startsWith('Recording')).length + 1;
-    BF.audio.buffers.set(id, trimmed);
-    BF.project.samples[id] = { name: `Recording ${n}`, mime: 'audio/wav', base64: BF.io._b64.bytesToBase64(bytes) };
     const p = BF.project;
+    const n = Object.values(p.samples).filter((s) => /^Recording \d+$/.test(s.name)).length + 1;
+    const addSample = async (b, name) => {
+      const bytes = new Uint8Array(await BF.encodeWav(b).arrayBuffer());
+      const id = BF.uid('s');
+      BF.audio.buffers.set(id, b);
+      BF.project.samples[id] = { name, mime: 'audio/wav', base64: BF.io._b64.bytesToBase64(bytes) };
+      return id;
+    };
+    // Loop recording: the transport went round the loop while recording. Every pass becomes a take of the loop.
+    const passes = R.loopPasses(trimmed, t.startBeat);
+    let start = t.startBeat, len = 0, ids;
+    if (passes) {
+      ids = [];
+      for (let k = 0; k < passes.buffers.length; k++) ids.push(await addSample(passes.buffers[k], `Recording ${n} take ${k + 1}`));
+      start = passes.start; len = passes.len;
+    } else ids = [await addSample(trimmed, `Recording ${n}`)];
+    // recording again over a recording that starts at the same spot: the new audio becomes another take of that clip
+    const near = (c) => c.kind === 'audio' && Math.abs(c.start - start) < 0.13 && (c.takes || /^Recording \d+/.test(p.samples[c.sampleId]?.name || ''));
+    const old = p.clips.find(near);
+    if (old) {
+      const count = (old.takes ? old.takes.length : 1) + ids.length;
+      BF.commit((q) => {
+        const k = q.clips.find((x) => x.id === old.id);
+        k.takes = [...(k.takes || [k.sampleId]), ...ids].slice(-32);
+        k.sampleId = ids[ids.length - 1];
+        k.len = len;
+      }, null, 'clips');
+      BF.ui.toast(`${ids.length > 1 ? `${ids.length} takes` : 'New take'} added to the clip on track ${old.track + 1} (${Math.min(32, count)} takes). Select the clip to compare them.`);
+      return;
+    }
     const used = new Set(p.clips.map((c) => c.track));
     let track = p.tracks.findIndex((_, i) => !used.has(i));
     if (track < 0) track = BF.TRACKS - 1;
-    const clip = { id: BF.uid('c'), kind: 'audio', track, start: t.startBeat, len: 0, sampleId: id, mode: 'resample', speed: 1, pitch: 0, srcBpm: p.bpm, gain: 1 };
+    const clip = { id: BF.uid('c'), kind: 'audio', track, start, len, sampleId: ids[ids.length - 1], mode: 'resample', speed: 1, pitch: 0, srcBpm: p.bpm, gain: 1, ...(ids.length > 1 ? { takes: ids } : {}) };
     BF.commit((q) => { q.clips.push(clip); if (q.tracks[track].name.startsWith('Track ')) q.tracks[track].name = `Recording ${n}`; });
-    BF.ui.toast(`Recording ${n} added on track ${track + 1} (${trimmed.duration.toFixed(1)} s).`);
+    BF.ui.toast(ids.length > 1 ? `Recording ${n}: ${ids.length} takes on track ${track + 1}. Select the clip to compare them; the last take is used.` : `Recording ${n} added on track ${track + 1} (${trimmed.duration.toFixed(1)} s).`);
+  };
+
+  /** Split a recording made while the song looped into one buffer per pass, each lined up with the loop start.
+   *  Returns null when the transport did not go round. */
+  R.loopPasses = function (buf, startBeat) {
+    const T = BF.transport, p = BF.project;
+    if (T.mode !== 'song') return null;
+    const lS = T.loop ? T.loop.start : 0, lE = T.loop ? T.loop.end : BF.songEndBeat(p);
+    if (!(lE > lS) || startBeat >= lE) return null;
+    const tm = BF.tempoMap(p, 'song'), rate = buf.sampleRate;
+    const first = tm.sec(lE) - tm.sec(startBeat), pass = tm.sec(lE) - tm.sec(lS), lead = tm.sec(startBeat) - tm.sec(lS);
+    if (buf.duration < first + 0.3) return null; // stopped before the loop came round
+    const out = [];
+    const cut = (fromSec, toSec, padSec) => {
+      const b = new AudioBuffer({ numberOfChannels: buf.numberOfChannels, length: Math.max(1, Math.round(pass * rate)), sampleRate: rate });
+      const a = Math.round(fromSec * rate), z = Math.min(buf.length, Math.round(toSec * rate)), o = Math.round(padSec * rate);
+      for (let c = 0; c < buf.numberOfChannels; c++) { const d = b.getChannelData(c); d.set(buf.getChannelData(c).subarray(a, Math.min(z, a + d.length - o)), o); }
+      return b;
+    };
+    out.push(cut(0, first, lead)); // the first pass started where play was pressed
+    for (let s = first; s < buf.duration - Math.max(0.5, pass * 0.25); s += pass) out.push(cut(s, s + pass, 0)); // full passes (a short last bit is dropped)
+    return { buffers: out.slice(-32), start: lS, len: lE - lS };
   };
 })();

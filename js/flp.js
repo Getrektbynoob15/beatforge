@@ -180,6 +180,10 @@
   const DRUM_WORDS = [[/808/i, 'bass808'], [/kick|bd\b|bassdrum/i, 'kick'], [/snare|sd\b/i, 'snare'], [/clap/i, 'clap'], [/open ?hat|oh\b/i, 'openhat'], [/hat|hh\b|hihat/i, 'hihat'], [/rim/i, 'rim'], [/crash|cymbal|ride/i, 'crash'], [/tom/i, 'tom'], [/cowbell/i, 'cowbell'], [/perc|shaker|tamb/i, 'perc']];
   function instrumentFor(c, label) {
     const all = `${label} ${c.pluginName || ''} ${c.internal || ''} ${c.vst || ''}`;
+    const plug = `${c.pluginName || ''} ${c.internal || ''}`;
+    if (/sytrus/i.test(plug)) return ['fm4', /bass/i.test(label) ? 'Punch bass' : /bell/i.test(label) ? 'Tubular bell' : /pad/i.test(label) ? 'Digital pad' : 'Electric piano'];
+    if (/harmor|harmless/i.test(plug)) return ['additive', /pad|choir/i.test(label) ? 'Hollow pad' : /pluck/i.test(label) ? 'Pluck sweep' : 'Supersaw'];
+    if (/slicex|fruity slicer/i.test(plug)) return ['slicer', {}];
     if (/drumsynth|fpc|drum/i.test(all)) { for (const [re, s] of DRUM_WORDS) if (re.test(label)) return ['drum', { sound: s }]; }
     for (const [re, s] of DRUM_WORDS) if (re.test(label) && !/bass(?!drum)|lead|pad|synth/i.test(label.replace(/808/, ''))) return ['drum', { sound: s }];
     if (/808|sub|bass/i.test(all)) return ['synth', /808/i.test(all) ? '808 glide' : 'Sub bass'];

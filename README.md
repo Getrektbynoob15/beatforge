@@ -94,8 +94,13 @@ by GRBN Studios before it appears, the list is signed, and a plugin runs only on
 projects or the internet). Make your own: [beatforge-plugins](https://github.com/Getrektbynoob15/beatforge-plugins), and
 submit it at [grbnstudios.com/beatforge-plugins](https://grbnstudios.com/beatforge-plugins).
 
-The built-in instruments and effects use a separate internal format (`js/plugins/`). VST/AU plugins cannot run inside a
-web app, so they are not supported.
+The built-in instruments and effects use a separate internal format (`js/plugins/`).
+
+**VST plugins (desktop app):** VST3 and VST2 (64-bit) instruments and effects run in the BeatForge Plugin Host
+(`vsthost/`), a separate process so a crashing plugin can't take BeatForge down. VST3 support is built on the Steinberg
+VST3 SDK (MIT). VST2 support uses BeatForge's own description of the VST2 binary interface (`vsthost/vst2abi.h`), not
+Steinberg's VST2 SDK. VST2 files are first opened in a throw-away child process during the scan. Plugin windows open on
+Windows and Mac. AU and CLAP are not supported. The web version can't run VST plugins.
 
 ## How it works
 
@@ -110,7 +115,7 @@ Build the desktop apps with `./build.sh` (needs the official Electron 33.2.1 zip
 
 ## Known limitations
 
-- No VST/AU plugins (see above).
+- No AU/CLAP plugins, no 32-bit VST2 plugins (see above).
 - FL Studio `.flp` import (File → Open) brings in tempo, channels, notes, patterns, playlist, track and mixer names and
   matching effects. FL's own plugins and VSTs are replaced by the closest BeatForge sound; settings inside `.fst` files are
   FL's own format, so effects start at default settings. Written from the community's public description of the format.

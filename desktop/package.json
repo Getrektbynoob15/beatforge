@@ -1,7 +1,7 @@
 {
   "name": "beatforge",
   "productName": "BeatForge",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "description": "A small music maker: step sequencer, playlist, mixer and WAV export.",
   "main": "main.js",
   "license": "MIT"

@@ -34,6 +34,7 @@
   W.create({ id: 'picker', title: 'Plugin picker', body: BF.keys.buildPicker(), rect: { x: 0.25, y: 0.1, w: 0.5, h: 0.6 }, open: false, hotkey: 'F8' });
   W.create({ id: 'store', title: 'Plugin store', body: BF.community.build(), rect: { x: 0.15, y: 0.06, w: 0.7, h: 0.8 }, open: false, onShow: () => BF.community.render() });
   W.create({ id: 'sampleed', title: 'Audio editor', body: BF.sampleEditor.build(), rect: { x: 0.1, y: 0.2, w: 0.8, h: 0.5 }, open: false, onShow: () => BF.sampleEditor.draw(), onHide: () => BF.sampleEditor.stop() });
+  W.create({ id: 'perf', title: 'Performance', body: BF.perf.build(), rect: { x: 0.12, y: 0.12, w: 0.76, h: 0.6 }, open: false, onShow: () => BF.perf.render() });
   W.create({ id: 'auto', title: 'Automation', body: BF.auto.build(), rect: { x: 0.1, y: 0.5, w: 0.8, h: 0.42 }, open: false, onShow: () => BF.auto.render() });
   W.front('rack');
   const wsToggle = W.toggle;
@@ -78,7 +79,7 @@
     if (BF.audio.ctx && !['select', 'pattern', 'view', 'transport', 'windows'].includes(reason)) BF.audio.sync(BF.audio.graph, BF.project);
     switch (reason) {
       case 'mix': want('mixlabels', 'top'); break;
-      case 'param': want('top'); break;
+      case 'param': want('top', 'editorsync'); break;
       case 'steps': want('rack', 'playlist', 'top'); break;
       case 'notes': want('piano', 'rack', 'playlist', 'top'); break;
       case 'clips': want('playlist', 'top', 'auto'); break;
@@ -228,6 +229,7 @@
     { label: 'Plugin store…', checked: W.isOpen('store'), action: () => BF.community.openStore() },
     { label: 'Close all windows', hint: 'F12', action: () => [...W.all.keys()].forEach((id) => { if (id !== 'playlist') W.toggle(id, false); }) },
     { label: 'Plugin editor', checked: W.isOpen('editor'), action: () => W.toggle('editor') },
+    { label: 'Performance mode', checked: W.isOpen('perf'), action: () => W.toggle('perf') },
     '-',
     { label: 'Reset window layout', action: () => W.resetLayout() },
   ]));

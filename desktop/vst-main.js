@@ -1,4 +1,4 @@
-// VST3 support for the desktop app: starts the BeatForge Plugin Host (vsthost/bfvsthost.cpp, a separate process so a
+// VST3 + VST2 support for the desktop app: starts the BeatForge Plugin Host (vsthost/bfvsthost.cpp, a separate process so a
 // crashing plugin can't take BeatForge down) and passes messages between it and the page.
 //   - commands (scan, load, state, knobs, plugin windows) go through ipcMain.handle('vst:call')
 //   - audio for live playback goes through a MessagePort per instrument, straight from the page's audio thread
@@ -38,7 +38,7 @@ function start() {
   if (proc) return true;
   const file = exe();
   if (!file) return false;
-  proc = spawn(file, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+  proc = spawn(file, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, BF_VST_CACHE: path.join(app.getPath('userData'), 'vst2-scan.txt') } });
   buf = Buffer.alloc(0);
   proc.stdout.on('data', (d) => {
     buf = buf.length ? Buffer.concat([buf, d]) : d;
@@ -97,7 +97,7 @@ function setup(getWin) {
         case 'available': return { ok: !!exe(), platform: process.platform };
         case 'scan': return await scan();
         case 'addFolder': {
-          const r = await dialog.showOpenDialog(win, { title: 'Add a folder with VST3 plugins', properties: ['openDirectory'] });
+          const r = await dialog.showOpenDialog(win, { title: 'Add a folder with VST plugins', properties: ['openDirectory'] });
           if (r.canceled || !r.filePaths[0]) return { canceled: true };
           const c = readCfg();
           if (!c.folders.includes(r.filePaths[0])) c.folders.push(r.filePaths[0]);
@@ -108,7 +108,7 @@ function setup(getWin) {
         case 'load': {
           if (!INST.test(a.inst) || !/^[0-9A-F]{32}$/i.test(a.cid)) return { error: 'Bad request.' };
           if (!scanned.size) await scan();
-          if (!scanned.has(a.path)) return { error: 'That plugin was not found in your VST3 folders.' };
+          if (!scanned.has(a.path)) return { error: 'That plugin was not found in your VST plugin folders.' };
           const r = await call(['load', a.inst, a.path, a.cid, num(a.rate), num(a.block || 512)]);
           if (!r.h.error) loaded.add(a.inst);
           return r.h;

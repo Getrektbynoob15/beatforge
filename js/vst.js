@@ -1,4 +1,4 @@
-/* vst.js: VST3 instruments and effects in the desktop app (Windows; Linux for testing), through the BeatForge Plugin
+/* vst.js: VST3 and VST2 instruments and effects in the desktop app (Windows, Mac; Linux for testing), through the BeatForge Plugin
  * Host (vsthost/bfvsthost.cpp, a separate process).
  *
  * A VST channel is { plugin: 'vst:<class id>', vstState: base64, vstName }, a VST effect in a mixer slot the same. The
@@ -46,7 +46,7 @@
   };
   function adopt(r) {
     V.plugins = r.plugins || []; V.folders = r.folders || []; V.scanned = true;
-    try { localStorage.setItem(CACHE, JSON.stringify(V.plugins.map(({ path, cid, name, vendor, kind }) => ({ path, cid, name, vendor, kind })))); } catch { /* */ }
+    try { localStorage.setItem(CACHE, JSON.stringify(V.plugins.map(({ path, cid, name, vendor, kind, fmt }) => ({ path, cid, name, vendor, kind, fmt })))); } catch { /* */ }
     V.plugins.forEach(register);
     if (BF.browser && BF.browser.render) BF.browser.render(true);
     // plugins that were placeholders may be real now: rebuild effect chains and start instruments
@@ -383,7 +383,7 @@
 
   // ---------- the "VST plugins" window ----------
   V.open = async function (kind = 'instrument', insert = null) {
-    if (!V.available()) { BF.ui.toast(desk() ? 'VST plugins are not available for this computer yet (Windows and Linux only for now).' : 'VST plugins work in the BeatForge desktop app (Windows).'); return; }
+    if (!V.available()) { BF.ui.toast(desk() ? 'VST plugins are not available in this version for this computer. Update BeatForge.' : 'VST plugins work in the BeatForge desktop app (Windows and Mac).'); return; }
     const d = document.createElement('dialog');
     d.className = 'dlg vst-dlg';
     const h = document.createElement('h2');
@@ -401,22 +401,22 @@
       const ins = Number.isInteger(insert) ? insert : (BF.mixer && Number.isInteger(BF.mixer.selected) ? BF.mixer.selected : 0);
       h.textContent = kind === 'instrument' ? 'VST instruments' : 'VST effects';
       note.textContent = kind === 'instrument'
-        ? 'VST3 instruments from your plugin folders (Serum, Vital, Sylenth…). Click one to add it to the channel rack.'
-        : `VST3 effects (OTT, Valhalla, FabFilter…). Click one to add it to ${BF.project.mixer[ins].name}.`;
+        ? 'VST3 and VST2 instruments from your plugin folders (Serum, Vital, Sylenth…). Click one to add it to the channel rack.'
+        : `VST3 and VST2 effects (OTT, Valhalla, FabFilter…). Click one to add it to ${BF.project.mixer[ins].name}.`;
       list.textContent = '';
       const q = search.value.trim().toLowerCase();
       const items = V.plugins.filter((p) => p.kind === kind && (!q || `${p.name} ${p.vendor}`.toLowerCase().includes(q)));
       if (!V.scanned) list.textContent = 'Looking for plugins…';
-      else if (!items.length) list.textContent = q ? 'No match.' : 'None found. Install VST3 plugins in the standard folder (C:\\Program Files\\Common Files\\VST3) or add your own folder.';
+      else if (!items.length) list.textContent = q ? 'No match.' : 'None found. Install plugins in the standard folders (VST3: C:\\Program Files\\Common Files\\VST3, VST2: C:\\Program Files\\VSTPlugins) or add your own folder.';
       items.forEach((p) => {
         const row = document.createElement('button'); row.className = 'vst-item';
         const n = document.createElement('b'); n.textContent = p.name;
-        const v = document.createElement('span'); v.textContent = p.vendor || '';
+        const v = document.createElement('span'); v.textContent = `${p.vendor || ''}${p.fmt === 'VST2' ? ' · VST2' : ''}`;
         row.append(n, v);
         row.addEventListener('click', () => { d.close(); if (kind === 'instrument') V.addChannel(p); else V.addEffect(p, ins); });
         list.append(row);
       });
-      folders.textContent = `Only VST3 (not VST2 .dll). Extra folders: ${V.folders.length ? V.folders.join(', ') : 'none'}`;
+      folders.textContent = `VST3 and VST2 (64-bit). Extra folders: ${V.folders.length ? V.folders.join(', ') : 'none'}`;
     };
     search.addEventListener('input', draw);
     const rescan = async (fn) => { list.textContent = 'Looking for plugins…'; try { if (fn) { const r = await fn(); if (r && r.error) BF.ui.toast(r.error, true); else if (r && r.plugins) adopt(r); } else await V.scan(); } catch (e) { BF.ui.toast(e.message, true); } draw(); };

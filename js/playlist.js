@@ -325,6 +325,7 @@
       else if (Math.abs(sp - 1) > 0.004) name += ` · ${Math.round(sp * 100)}%`;
       if (c.pitch) name += ` · ${c.pitch > 0 ? '+' : ''}${c.pitch} st`;
       if (c.mode === 'resample') name += ' · resample';
+      if (c.takes) name = `${name.replace(/ take \d+(?= ·|$)/, '')} · take ${c.takes.indexOf(c.sampleId) + 1}/${c.takes.length}`;
     }
     const label = document.createElement('span');
     label.textContent = name;
@@ -536,10 +537,24 @@
     });
   }
 
+  P.sliceClip = (c, at) => sliceClip(c, at);
   function sliceClip(c, at) {
     const len = clipLen(c);
     if (at <= c.start + 0.01 || at >= c.start + len - 0.01) return;
-    if (c.kind !== 'pattern') { BF.ui.toast('Only pattern clips can be sliced. Trim audio and automation with the right edge instead.'); return; }
+    if (c.kind === 'audio') { // audio: two clips, the right one starts later in the same audio (keeps its takes: comping)
+      BF.commit((q) => {
+        const k = q.clips.find((x) => x.id === c.id);
+        const leftLen = at - k.start;
+        const right = { ...k, id: BF.uid('c'), start: at, len: k.len > 0 ? k.start + k.len - at : 0, trim: (k.trim || 0) + (BF.tempoMap(q).sec(at) - BF.tempoMap(q).sec(k.start)) };
+        if (k.takes) right.takes = [...k.takes];
+        delete right.fadeIn; delete k.fadeOut;
+        k.len = leftLen;
+        q.clips.push(right);
+        P.sel = new Set([right.id]);
+      }, null, 'clips');
+      return;
+    }
+    if (c.kind !== 'pattern') { BF.ui.toast('Automation clips can not be sliced. Trim them with the right edge instead.'); return; }
     BF.commit((q) => {
       const k = q.clips.find((x) => x.id === c.id);
       const right = { ...k, id: BF.uid('c'), start: at, len: k.start + k.len - at };
@@ -763,6 +778,37 @@
     editA.title = 'Open this audio in the audio editor (trim, cut, reverse, fades, normalize)';
     editA.addEventListener('click', () => BF.sampleEditor.open(c.sampleId));
     panel.append(name, mode, speed.el, pitch.el, gain.el, pan.el, fadeIn.el, fadeOut.el, trim.el, rev, bpmL, guess, prev, editA, rend, hint);
+    if (c.takes) panel.append(takesView(c));
+  }
+
+  /** All takes of a recorded spot, one lane each, lined up in time. Click a lane to hear that take in the song.
+   *  Comping: slice the clip (S or the Slice tool) and pick a different take for each piece. */
+  function takesView(c) {
+    const box = document.createElement('div'); box.className = 'takes';
+    const h = document.createElement('strong'); h.textContent = `Takes (${c.takes.length})`;
+    const tip = document.createElement('span'); tip.className = 'hint'; tip.textContent = 'Click a take to use it here. Slice the clip to use different takes for different parts.';
+    box.append(h, tip);
+    c.takes.forEach((id, i) => {
+      const row = document.createElement('div'); row.className = 'take-row' + (id === c.sampleId ? ' on' : '');
+      const pick = document.createElement('button'); pick.className = 'take-pick';
+      pick.setAttribute('aria-pressed', String(id === c.sampleId));
+      pick.setAttribute('aria-label', `Use take ${i + 1}`);
+      const n = document.createElement('span'); n.textContent = `Take ${i + 1}`;
+      const cv = document.createElement('canvas'); cv.className = 'take-wave';
+      pick.append(n, cv);
+      pick.addEventListener('click', () => BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); if (k) k.sampleId = id; }, null, 'clips'));
+      const play = document.createElement('button'); play.className = 'btn small'; play.textContent = '▶';
+      play.title = `Hear take ${i + 1}`;
+      play.addEventListener('click', () => BF.audio.previewClip({ ...BF.project.clips.find((x) => x.id === c.id), sampleId: id }));
+      const del = document.createElement('button'); del.className = 'btn small'; del.textContent = '✕';
+      del.title = 'Remove this take from the clip (the audio stays in the project)';
+      del.disabled = id === c.sampleId;
+      del.addEventListener('click', () => BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); if (!k) return; k.takes = k.takes.filter((x) => x !== id); if (k.takes.length < 2) delete k.takes; }, null, 'clips'));
+      row.append(pick, play, del);
+      box.append(row);
+      requestAnimationFrame(() => drawWave(cv, { ...c, sampleId: id }));
+    });
+    return box;
   }
 
   // ---------- drawing helpers ----------
@@ -771,8 +817,9 @@
     cv.width = w; cv.height = h;
     const buf = BF.audio.buffers.get(c.sampleId);
     if (!buf) return;
-    const natBeats = (BF.audio.clipNaturalSec(c) * BF.project.bpm) / 60;
-    const shown = clipLen(c) / natBeats; // fraction of the sample visible (trim)
+    const fullBeats = ((buf.duration / BF.audio.clipSpeed(c)) * BF.project.bpm) / 60; // the whole sample at the clip's speed
+    const shown = clipLen(c) / fullBeats; // fraction of the sample visible
+    const from = ((c.trim || 0) * BF.project.bpm) / 60 / fullBeats; // where the clip starts in it (trim, slices)
     const full = Math.max(1, Math.round(w / shown));
     const key = `${c.sampleId}:${full}`;
     let pk = peaks.get(key);
@@ -786,8 +833,10 @@
     }
     const g = cv.getContext('2d');
     g.fillStyle = 'rgba(255,255,255,.75)';
-    for (let x = 0; x < w; x++) { const a = (pk[x] || 0) * (h / 2 - 1); g.fillRect(x, h / 2 - a, 1, Math.max(1, a * 2)); }
+    const o = Math.round(from * full);
+    for (let x = 0; x < w; x++) { const a = (pk[x + o] || 0) * (h / 2 - 1); g.fillRect(x, h / 2 - a, 1, Math.max(1, a * 2)); }
   }
+  P.drawWave = drawWave;
 
   function drawPatternMini(cv, c) {
     const w = Math.max(1, Math.min(6000, cv.clientWidth)), h = cv.clientHeight || 30;

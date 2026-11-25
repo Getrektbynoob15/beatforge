@@ -108,6 +108,7 @@
     return out;
   };
 
+  BF.bookPattern = (...a) => bookPattern(...a);
   function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false) {
     const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
     for (const ch of p.channels) {
@@ -139,6 +140,7 @@
   /** Book everything in [from, to). mode 'pattern': current pattern looped from beat 0. 'song': the playlist. */
   BF.scheduleRange = function (g, p, from, to, beatTime, mode, sources, later) {
     const spb = 60 / p.bpm;
+    if (mode === 'perf') { BF.perf.schedule(g, p, from, to, beatTime, sources, spb); return; } // performance mode: launched pads
     if (mode === 'pattern') {
       const pt = BF.pattern();
       if (!pt) return;
@@ -186,7 +188,7 @@
 
   const beatTime = (beat) => T.anchorTime + T.tm.sec(beat) - T.tm.sec(T.anchorBeat);
   const mapNow = () => BF.tempoMap(BF.project, T.mode);
-  const loopEnd = () => (T.mode === 'song' ? (T.loop ? T.loop.end : BF.songEndBeat()) : BF.patternBeats(BF.pattern()));
+  const loopEnd = () => (T.mode === 'perf' ? Infinity : T.mode === 'song' ? (T.loop ? T.loop.end : BF.songEndBeat()) : BF.patternBeats(BF.pattern()));
   const loopStart = () => (T.mode === 'song' && T.loop ? T.loop.start : 0);
   T.loop = null; // Song mode loop region { start, end } in beats (drag on the playlist ruler)
 
@@ -280,6 +282,7 @@
   T.stop = function () {
     if (!T.playing) return;
     const ctx = BF.audio.ctx;
+    const stoppedAt = T.position();
     clearInterval(T.timer);
     T.timer = null;
     T.playing = false;
@@ -296,6 +299,7 @@
     T.sources.forEach((s) => { try { s.stop(now + 0.02); } catch { /* ended */ } });
     T.sources = [];
     BF.recorder.onStop();
+    if (T.mode === 'perf' && BF.perf) BF.perf.onStop(stoppedAt);
     if (BF.community) BF.community.stopAll();
     if (BF.vst) BF.vst.stopAll();
     // drop booked automation ramps, go back to the static mixer/channel values
