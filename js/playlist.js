@@ -327,6 +327,8 @@
       if (c.mode === 'resample') name += ' · resample';
       if (c.takes) name = `${name.replace(/ take \d+(?= ·|$)/, '')} · take ${c.takes.indexOf(c.sampleId) + 1}/${c.takes.length}`;
     }
+    const cv0 = c.kind === 'pattern' ? c.vol ?? 1 : c.gain ?? 1; // this clip's own volume
+    if (Math.abs(cv0 - 1) > 0.004) name += ` · vol ${Math.round(cv0 * 100)}%`;
     const label = document.createElement('span');
     label.textContent = name;
     el.append(label);
@@ -715,6 +717,7 @@
 
   // ---------- selected audio clip panel ----------
   function renderPanel() {
+    if (BF.mixer && BF.mixer.tab === 'sources' && BF.win && BF.win.isOpen('mixer')) BF.mixer.render(); // its "Selected clips" follow the selection
     const p = BF.project;
     const c = P.sel.size === 1 ? p.clips.find((x) => P.sel.has(x.id) && x.kind === 'audio') : null;
     const any = p.clips.some((x) => P.sel.has(x.id) && (x.kind === 'pattern' || x.kind === 'audio'));
@@ -725,8 +728,16 @@
     rend.addEventListener('click', () => P.renderToAudio());
     if (!c) {
       if (!any) return;
-      const t = document.createElement('strong'); t.textContent = `${P.sel.size} clip${P.sel.size > 1 ? 's' : ''} selected`;
-      panel.append(t, rend);
+      const pc = P.sel.size === 1 ? p.clips.find((x) => P.sel.has(x.id) && x.kind === 'pattern') : null;
+      const t = document.createElement('strong');
+      t.textContent = pc ? (p.patterns.find((x) => x.id === pc.patternId)?.name || 'Pattern') : `${P.sel.size} clip${P.sel.size > 1 ? 's' : ''} selected`;
+      panel.append(t);
+      if (pc) { // this clip only: the other clips of the same pattern keep their volume
+        const vol = BF.ui.knob({ param: { name: 'Volume', min: 0, max: 1, default: 1, fmt: BF.plugins.util.pct }, value: pc.vol ?? 1, onInput: (v) => BF.commit((q) => { const k = q.clips.find((x) => x.id === pc.id); if (k) { if (Math.abs(v - 1) < 0.004) delete k.vol; else k.vol = v; } }, `cvol-${pc.id}`, 'clips') });
+        vol.el.classList.add('inline'); vol.el.title = 'Volume of this clip only (the other clips of this pattern are not changed)';
+        panel.append(vol.el);
+      }
+      panel.append(rend);
       return;
     }
     const s = p.samples[c.sampleId];

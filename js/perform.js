@@ -94,7 +94,7 @@
       const at = cur.start + k * L;
       if (c.kind === 'pattern') {
         const pt = p.patterns.find((x) => x.id === c.patternId);
-        if (pt) BF.bookPattern(g, p, pt, at, Math.max(from, at), to, at + L, beatTime, spb, false);
+        if (pt) BF.bookPattern(g, p, pt, at, Math.max(from, at), to, at + L, beatTime, spb, false, c.vol ?? 1);
       } else if (at >= from - 1e-9 && at < to - 1e-9) {
         const ins = p.tracks[track]?.insert || 0;
         const src = BF.audio.playClip(g.ctx, c, g.inserts[ins].transport, beatTime(at), 0, p.bpm);
@@ -118,7 +118,7 @@
         // one playlist clip per loop of the pad (like launching it again and again)
         for (let s = r.start; s < end - 1e-6; s += L) {
           const len = Math.min(L, end - s);
-          if (c.kind === 'pattern') p.clips.push({ id: BF.uid('c'), kind: 'pattern', track: r.track, start: base + s, len, patternId: c.patternId });
+          if (c.kind === 'pattern') p.clips.push({ id: BF.uid('c'), kind: 'pattern', track: r.track, start: base + s, len, patternId: c.patternId, ...(c.vol !== undefined ? { vol: c.vol } : {}) });
           else p.clips.push({ ...c, id: BF.uid('c'), track: r.track, start: base + s, len: Math.min(len, BF.audio.clipBeats(c, p.bpm)) });
         }
       });

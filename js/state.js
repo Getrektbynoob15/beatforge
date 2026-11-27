@@ -259,7 +259,7 @@
       track: Math.round(clamp(c.track, 0, BF.TRACKS - 1, 0)),
       start: clamp(c.start, 0, 4096, 0),
       len: clamp(c.len, 0, 4096, 0),
-      ...(c.kind === 'pattern' ? { patternId: c.patternId } : {
+      ...(c.kind === 'pattern' ? { patternId: c.patternId, ...(Number.isFinite(+c.vol) && +c.vol !== 1 ? { vol: clamp(c.vol, 0, 1, 1) } : {}) } : {
         sampleId: c.sampleId,
         mode: ['stretch', 'resample', 'fit'].includes(c.mode) ? c.mode : 'stretch',
         speed: clamp(c.speed, 0.25, 4, 1),

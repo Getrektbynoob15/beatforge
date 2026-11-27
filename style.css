@@ -196,6 +196,9 @@ input[type=range] { accent-color: var(--accent); }
 .mx-srcstrip { flex-basis: 84px; border-top: 3px solid var(--c, var(--line)); }
 .mx-srcname { cursor: default; font-weight: 600; }
 .mx-src .empty { color: var(--muted); padding: 12px; }
+.mx-srcstrip.clip { background: #1f2a33; border-color: var(--accent); border-top-color: var(--c, var(--accent)); }
+.mx-srcsep { flex: 0 0 2px; margin: 4px 6px; border-radius: 2px; background: var(--line); }
+.mx-srchint { flex: 0 0 120px; align-self: center; color: var(--muted); font-size: 11px; line-height: 1.4; padding: 0 8px; }
 .mx-strips { display: flex; gap: 3px; padding: 6px; overflow-x: auto; flex: 1; min-width: 0; }
 .mx-strip { flex: 0 0 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 3px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; }
 .mx-strip.master { flex-basis: 76px; border-color: #3b4558; margin-right: 6px; }

@@ -109,9 +109,10 @@
   };
 
   BF.bookPattern = (...a) => bookPattern(...a);
-  function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false) {
+  function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false, clipVol = 1) {
     if (pt.mute) return;
-    const pv = pt.vol ?? 1; // pattern volume (mixer "Patterns & audio" tab): scales every note's velocity
+    // pattern volume (mixer "Patterns & audio" tab) x this clip's own volume: scales every note's velocity
+    const pv = (pt.vol ?? 1) * clipVol;
     const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
     for (const ch of p.channels) {
       if (ch.mute) continue;
@@ -156,7 +157,7 @@
         const end = c.start + c.len;
         if (end <= from || c.start >= to) continue;
         const pt = p.patterns.find((x) => x.id === c.patternId);
-        if (pt) bookPattern(g, p, pt, c.start, from, to, end, beatTime, spb, true);
+        if (pt) bookPattern(g, p, pt, c.start, from, to, end, beatTime, spb, true, c.vol ?? 1);
       } else if (c.kind === 'audio' && c.start >= from - 1e-9 && c.start < to - 1e-9) {
         const ins = p.tracks[c.track]?.insert || 0;
         const src = BF.audio.playClip(g.ctx, c, g.inserts[ins].transport, beatTime(c.start), 0, p.bpm);

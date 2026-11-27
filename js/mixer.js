@@ -36,9 +36,9 @@
   };
 
   // ---------- Patterns & audio tab ----------
-  function srcStrip({ key, label, color, vol, max, mute, title, set, toggle }) {
+  function srcStrip({ key, label, color, vol, max, mute, title, set, toggle, cls = '', done = null }) {
     const el = document.createElement('div');
-    el.className = 'mx-strip mx-srcstrip';
+    el.className = `mx-strip mx-srcstrip${cls ? ` ${cls}` : ''}`;
     el.dataset.key = key;
     el.style.setProperty('--c', color);
     const kind = document.createElement('div'); kind.className = 'mx-num'; kind.textContent = title;
@@ -52,6 +52,7 @@
     fader.title = 'Volume (double-click: 100%)';
     fader.addEventListener('input', () => set(fader.value / 100, `src-${key}`));
     fader.addEventListener('dblclick', () => set(1, null));
+    if (done) fader.addEventListener('change', done); // released: let the playlist show the new volume
     body.append(fader);
     const v = document.createElement('div'); v.className = 'mx-vol'; v.textContent = `${Math.round(vol * 100)}%`;
     const ms = document.createElement('div'); ms.className = 'ms';
@@ -66,6 +67,21 @@
   function sources() {
     const p = BF.project, sl = srcEl.scrollLeft;
     srcEl.textContent = '';
+    // the clips selected in the playlist: their own volume, so one part of the song can be quieter than another
+    const sel = BF.playlist && BF.playlist.sel ? p.clips.filter((c) => BF.playlist.sel.has(c.id) && (c.kind === 'pattern' || c.kind === 'audio')).sort((a, b) => a.start - b.start).slice(0, 12) : [];
+    const bar = (c) => `bar ${Math.floor(c.start / BF.barBeats()) + 1}`;
+    sel.forEach((c) => {
+      const pt = c.kind === 'pattern' ? p.patterns.find((x) => x.id === c.patternId) : null;
+      const label = pt ? pt.name : (p.samples[c.sampleId]?.name || 'Audio');
+      const field = c.kind === 'pattern' ? 'vol' : 'gain';
+      srcEl.append(srcStrip({
+        key: `c:${c.id}`, label: `${label} · ${bar(c)}`, color: pt ? pt.color : '#8fd3ff', vol: c[field] ?? 1, max: c.kind === 'pattern' ? 100 : 200, mute: c.muted, title: 'Selected clip', cls: 'clip', done: () => BF.emit('clips'),
+        set: (v, k) => BF.commit((q) => { const x = q.clips.find((y) => y.id === c.id); if (!x) return; if (field === 'vol' && Math.abs(v - 1) < 0.004) delete x.vol; else x[field] = v; }, k, 'mix'),
+        toggle: () => BF.commit((q) => { const x = q.clips.find((y) => y.id === c.id); if (x) { if (x.muted) delete x.muted; else x.muted = true; } }, null, 'clips'),
+      }));
+    });
+    if (sel.length) { const d = document.createElement('div'); d.className = 'mx-srcsep'; d.title = 'Left: only the selected clips. Right: every clip of a pattern / audio file.'; srcEl.append(d); }
+    else { const h = document.createElement('div'); h.className = 'mx-srchint'; h.textContent = 'Tip: select clips in the playlist to change only those clips here.'; srcEl.append(h); }
     p.patterns.forEach((pt) => srcEl.append(srcStrip({
       key: `p:${pt.id}`, label: pt.name, color: pt.color, vol: pt.vol ?? 1, max: 100, mute: pt.mute, title: 'Pattern',
       set: (v, k) => BF.commit((q) => { const x = q.patterns.find((y) => y.id === pt.id); if (x) { if (v === 1) delete x.vol; else x.vol = v; } }, k, 'mix'),
@@ -81,7 +97,7 @@
       set: (v, k) => BF.commit((q) => { mixOf(q, id).vol = v; tidy(q, id); }, k, 'mix'),
       toggle: () => BF.commit((q) => { const m = mixOf(q, id); if (m.mute) delete m.mute; else m.mute = true; tidy(q, id); }),
     })); });
-    if (!srcEl.children.length) { const e = document.createElement('p'); e.className = 'empty'; e.textContent = 'No patterns or audio yet.'; srcEl.append(e); }
+    if (!p.patterns.length && !Object.keys(p.samples).length) { const e = document.createElement('p'); e.className = 'empty'; e.textContent = 'No patterns or audio yet.'; srcEl.append(e); }
     srcEl.scrollLeft = sl;
   }
 
@@ -272,7 +288,8 @@
       const p = BF.project;
       srcEl.querySelectorAll('.mx-srcstrip').forEach((el) => {
         const [k, id] = [el.dataset.key.slice(0, 1), el.dataset.key.slice(2)];
-        const v = k === 'p' ? (p.patterns.find((x) => x.id === id)?.vol ?? 1) : (p.audioMix?.[id]?.vol ?? 1);
+        const c = k === 'c' ? p.clips.find((x) => x.id === id) : null;
+        const v = k === 'p' ? (p.patterns.find((x) => x.id === id)?.vol ?? 1) : k === 'c' ? ((c && (c.kind === 'pattern' ? c.vol : c.gain)) ?? 1) : (p.audioMix?.[id]?.vol ?? 1);
         el.querySelector('.mx-vol').textContent = `${Math.round(v * 100)}%`;
         el.querySelector('.mx-fader').setAttribute('aria-valuetext', `${Math.round(v * 100)}%`);
       });
