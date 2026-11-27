@@ -271,7 +271,7 @@
 
   /** The keydown handler. ctx = { newProject, openFile, toggleRec, showHelp }. Returns nothing. */
   K.handle = function (e, ctx) {
-    const el = document.activeElement;
+    const el = (e.target && e.target.ownerDocument ? e.target.ownerDocument : document).activeElement; // also from popped-out windows
     const typing = el && ((el.tagName === 'INPUT' && /^(number|text|search)$/.test(el.type)) || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
     if (document.querySelector('dialog[open]')) return;
     const mod = e.ctrlKey || e.metaKey;

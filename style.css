@@ -67,6 +67,13 @@ input[type=range] { accent-color: var(--accent); }
 .win-tools { display: flex; gap: 4px; }
 .win-close { background: none; border: 0; color: var(--muted); font-size: 18px; line-height: 1; width: 26px; height: 22px; border-radius: 4px; cursor: pointer; }
 .win-close:hover { background: var(--danger); color: #200; }
+.win-pop { background: none; border: 0; color: var(--muted); font-size: 14px; line-height: 1; width: 26px; height: 22px; border-radius: 4px; cursor: pointer; }
+.win-pop:hover { background: var(--panel); color: var(--text); }
+/* a panel in a window of its own (popped out) */
+body.win-popped { overflow: hidden; }
+.win.popped { position: static; width: 100vw; height: 100vh; border: 0; border-radius: 0; box-shadow: none; min-width: 0; }
+.win.popped > .win-bar { cursor: default; justify-content: flex-end; }
+.win.popped > .win-body { flex: 1; min-height: 0; }
 .win-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .win-grip { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--muted) 50% 58%, transparent 58% 70%, var(--muted) 70% 78%, transparent 78%); opacity: .6; }
 .empty { color: var(--muted); padding: 16px; margin: 0; }
@@ -197,6 +204,10 @@ input[type=range] { accent-color: var(--accent); }
 .mx-srcname { cursor: default; font-weight: 600; }
 .mx-src .empty { color: var(--muted); padding: 12px; }
 .mx-srcstrip.clip { background: #1f2a33; border-color: var(--accent); border-top-color: var(--c, var(--accent)); }
+.mx-srcstrip { flex: 0 0 96px; max-width: 96px; }
+.mx-srcstrip .mx-name { max-width: 90px; }
+.mx-srcstrip .mx-body { position: relative; justify-content: center; }
+.mx-unity { position: absolute; left: 50%; width: 26px; margin-left: -13px; height: 2px; border-radius: 1px; background: rgba(255,255,255,.35); pointer-events: none; bottom: calc(75% - 1px); }
 .mx-srcsep { flex: 0 0 2px; margin: 4px 6px; border-radius: 2px; background: var(--line); }
 .mx-srchint { flex: 0 0 120px; align-self: center; color: var(--muted); font-size: 11px; line-height: 1.4; padding: 0 8px; }
 .mx-strips { display: flex; gap: 3px; padding: 6px; overflow-x: auto; flex: 1; min-width: 0; }

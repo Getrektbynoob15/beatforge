@@ -151,7 +151,7 @@
     if (raw.audioMix && typeof raw.audioMix === 'object') {
       for (const [id, m] of Object.entries(raw.audioMix)) {
         if (!p.samples[id] || !m || typeof m !== 'object') continue;
-        const vol = clamp(m.vol, 0, 2, 1), mute = m.mute === true;
+        const vol = clamp(m.vol, 0, 4, 1), mute = m.mute === true;
         if (vol !== 1 || mute) p.audioMix[id] = { vol, ...(mute ? { mute: true } : {}) };
       }
     }
@@ -201,7 +201,7 @@
         }));
       }
       return { id: str(pt.id, BF.uid('p')), name: str(pt.name, `Pattern ${i + 1}`), color: /^#[0-9a-f]{6}$/i.test(pt.color) ? pt.color : BF.PATTERN_COLORS[i % 8], length, steps, notes,
-        ...(Number.isFinite(+pt.vol) && +pt.vol !== 1 ? { vol: clamp(pt.vol, 0, 1, 1) } : {}), ...(pt.mute === true ? { mute: true } : {}) };
+        ...(Number.isFinite(+pt.vol) && +pt.vol !== 1 ? { vol: clamp(pt.vol, 0, 4, 1) } : {}), ...(pt.mute === true ? { mute: true } : {}) };
     });
     if (!p.patterns.length) p.patterns = [BF.newPattern(1)];
     const patIds = new Set(p.patterns.map((x) => x.id));
@@ -259,13 +259,13 @@
       track: Math.round(clamp(c.track, 0, BF.TRACKS - 1, 0)),
       start: clamp(c.start, 0, 4096, 0),
       len: clamp(c.len, 0, 4096, 0),
-      ...(c.kind === 'pattern' ? { patternId: c.patternId, ...(Number.isFinite(+c.vol) && +c.vol !== 1 ? { vol: clamp(c.vol, 0, 1, 1) } : {}) } : {
+      ...(c.kind === 'pattern' ? { patternId: c.patternId, ...(Number.isFinite(+c.vol) && +c.vol !== 1 ? { vol: clamp(c.vol, 0, 4, 1) } : {}) } : {
         sampleId: c.sampleId,
         mode: ['stretch', 'resample', 'fit'].includes(c.mode) ? c.mode : 'stretch',
         speed: clamp(c.speed, 0.25, 4, 1),
         pitch: Math.round(clamp(c.pitch, -24, 24, 0)),
         srcBpm: clamp(c.srcBpm, 40, 300, 120),
-        gain: clamp(c.gain, 0, 2, 1),
+        gain: clamp(c.gain, 0, 4, 1),
         ...(c.reverse ? { reverse: true } : {}),
         ...(+c.fadeIn > 0 ? { fadeIn: clamp(c.fadeIn, 0, 60, 0) } : {}),
         ...(+c.fadeOut > 0 ? { fadeOut: clamp(c.fadeOut, 0, 60, 0) } : {}),

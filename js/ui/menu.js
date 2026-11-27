@@ -7,7 +7,7 @@
   function close() {
     if (!open) return;
     open.el.remove();
-    document.removeEventListener('pointerdown', open.outside, true);
+    open.doc.removeEventListener('pointerdown', open.outside, true);
     const back = open.back;
     open = null;
     if (back && back.focus) back.focus();
@@ -16,7 +16,9 @@
   /** items: [{ label, action, disabled, checked, hint } | '-'] */
   BF.ui.menu = function (x, y, items) {
     close();
-    const el = document.createElement('div');
+    const doc = (BF.win && BF.win.activeDoc && BF.win.activeDoc()) || document; // a popped-out window, or the app
+    const view = doc.defaultView || window;
+    const el = doc.createElement('div');
     el.className = 'menu';
     el.setAttribute('role', 'menu');
     const buttons = [];
@@ -35,19 +37,19 @@
       buttons.push(b);
     });
     el.addEventListener('keydown', (e) => {
-      const i = buttons.indexOf(document.activeElement);
+      const i = buttons.indexOf(doc.activeElement);
       if (e.key === 'ArrowDown') { e.preventDefault(); buttons[(i + 1) % buttons.length].focus(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); buttons[(i - 1 + buttons.length) % buttons.length].focus(); }
       else if (e.key === 'Escape') { e.preventDefault(); close(); }
       e.stopPropagation();
     });
-    document.body.append(el);
+    doc.body.append(el);
     const r = el.getBoundingClientRect();
-    el.style.left = `${Math.min(x, innerWidth - r.width - 4)}px`;
-    el.style.top = `${Math.min(y, innerHeight - r.height - 4)}px`;
+    el.style.left = `${Math.min(x, view.innerWidth - r.width - 4)}px`;
+    el.style.top = `${Math.min(y, view.innerHeight - r.height - 4)}px`;
     const outside = (e) => { if (!el.contains(e.target)) close(); };
-    setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
-    open = { el, outside, back: document.activeElement };
+    setTimeout(() => doc.addEventListener('pointerdown', outside, true), 0);
+    open = { el, outside, doc, back: doc.activeElement };
     (buttons.find((b) => !b.disabled) || buttons[0])?.focus();
   };
   BF.ui.closeMenu = close;

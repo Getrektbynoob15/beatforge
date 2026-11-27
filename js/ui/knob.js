@@ -100,7 +100,7 @@
       else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); change(p.default); }
     });
     draw();
-    return { el, dial, set(v) { if (v !== value && document.activeElement !== dial) { value = v; draw(); } }, get value() { return value; } };
+    return { el, dial, set(v) { if (v !== value && dial.ownerDocument.activeElement !== dial) { value = v; draw(); } }, get value() { return value; } };
   };
 
   /** A select / toggle / knob control for any plugin parameter. */
@@ -127,6 +127,6 @@
     input.value = value === null ? '' : value;
     input.addEventListener('change', () => onInput(input.value === '' && p.type === 'sample' ? null : input.value));
     el.append(name, input);
-    return { el, set(v) { if (document.activeElement !== input) input.value = v === null ? '' : v; } };
+    return { el, set(v) { if (input.ownerDocument.activeElement !== input) input.value = v === null ? '' : v; } };
   };
 })();

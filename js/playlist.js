@@ -189,7 +189,7 @@
     const W = end * px;
     inner.style.width = `${HEADW + W}px`;
     const scrollL = scroller.scrollLeft, scrollT = scroller.scrollTop;
-    const hadFocus = root.contains(document.activeElement) && !panel.contains(document.activeElement);
+    const hadFocus = root.contains(root.ownerDocument.activeElement) && !panel.contains(root.ownerDocument.activeElement);
 
     // ruler
     ruler.textContent = '';
@@ -296,7 +296,7 @@
     if (drag && drag.type === 'box') { /* box drawn by drag handler */ }
     scroller.scrollLeft = scrollL;
     scroller.scrollTop = scrollT;
-    if (hadFocus && !root.contains(document.activeElement)) scroller.focus({ preventScroll: true });
+    if (hadFocus && !root.contains(root.ownerDocument.activeElement)) scroller.focus({ preventScroll: true });
     if (!BF.ui.knobDrag) renderPanel();
     P.drawPlayhead(BF.transport.position());
   };
@@ -733,7 +733,7 @@
       t.textContent = pc ? (p.patterns.find((x) => x.id === pc.patternId)?.name || 'Pattern') : `${P.sel.size} clip${P.sel.size > 1 ? 's' : ''} selected`;
       panel.append(t);
       if (pc) { // this clip only: the other clips of the same pattern keep their volume
-        const vol = BF.ui.knob({ param: { name: 'Volume', min: 0, max: 1, default: 1, fmt: BF.plugins.util.pct }, value: pc.vol ?? 1, onInput: (v) => BF.commit((q) => { const k = q.clips.find((x) => x.id === pc.id); if (k) { if (Math.abs(v - 1) < 0.004) delete k.vol; else k.vol = v; } }, `cvol-${pc.id}`, 'clips') });
+        const vol = BF.ui.knob({ param: { name: 'Volume', min: 0, max: 4, default: 1, fmt: BF.plugins.util.pct }, value: pc.vol ?? 1, onInput: (v) => BF.commit((q) => { const k = q.clips.find((x) => x.id === pc.id); if (k) { if (Math.abs(v - 1) < 0.004) delete k.vol; else k.vol = v; } }, `cvol-${pc.id}`, 'clips') });
         vol.el.classList.add('inline'); vol.el.title = 'Volume of this clip only (the other clips of this pattern are not changed)';
         panel.append(vol.el);
       }
@@ -750,7 +750,7 @@
     const upd = (f, key) => BF.commit((q) => { const k = q.clips.find((x) => x.id === c.id); if (k) f(k); }, key, 'clips');
     const speed = BF.ui.knob({ param: { name: 'Speed', min: 0.25, max: 4, default: 1, curve: 'log', fmt: (v) => `${Math.round(v * 100)}%` }, value: BF.audio.clipSpeed(c), onInput: (v) => upd((k) => { k.speed = v; if (k.mode === 'fit') k.mode = 'stretch'; k.len = 0; }, `spd-${c.id}`) });
     const pitch = BF.ui.knob({ param: { name: 'Pitch', min: -24, max: 24, default: 0, step: 1, unit: ' st' }, value: c.pitch || 0, onInput: (v) => upd((k) => { k.pitch = v; }, `pit-${c.id}`) });
-    const gain = BF.ui.knob({ param: { name: 'Gain', min: 0, max: 2, default: 1, fmt: BF.plugins.util.pct }, value: c.gain ?? 1, onInput: (v) => upd((k) => { k.gain = v; }, `gain-${c.id}`) });
+    const gain = BF.ui.knob({ param: { name: 'Gain', min: 0, max: 4, default: 1, fmt: BF.plugins.util.pct }, value: c.gain ?? 1, onInput: (v) => upd((k) => { k.gain = v; }, `gain-${c.id}`) });
     const bpmL = document.createElement('label'); bpmL.className = 'field'; bpmL.textContent = 'Sample BPM ';
     const bpm = document.createElement('input'); bpm.type = 'number'; bpm.min = 40; bpm.max = 300; bpm.step = 0.01; bpm.value = c.srcBpm;
     bpm.title = 'The tempo the audio was recorded at. Fit to tempo stretches it to the project tempo.';

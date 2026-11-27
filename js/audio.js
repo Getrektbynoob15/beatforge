@@ -183,13 +183,15 @@
   };
 
   /** Book one note of a channel's instrument into graph `g`. */
-  A.note = function (g, ch, time, key, vel, dur, preview = false, params = null, extras = null) {
+  // gainMul: pattern / clip volume (mixer "Patterns & audio"), may boost above 1. Built-in instruments get it as a gain
+  // on the note; VST and community instruments only take velocity, so for them it scales the velocity (max 1).
+  A.note = function (g, ch, time, key, vel, dur, preview = false, params = null, extras = null, gainMul = 1) {
     const def = BF.plugins.get(ch.plugin);
     if (!def || def.kind !== 'instrument') return;
     const mp = BF.project.masterPitch || 0;
     if (mp && !extras) extras = {};
-    if (def.vst) return BF.vst ? BF.vst.note(g, ch, time, key + ch.pitch, vel, dur) : undefined;
-    if (def.ext) return BF.community.note(g, ch, time, key + ch.pitch, vel, dur, preview ? 'preview' : 'main', params);
+    if (def.vst) return BF.vst ? BF.vst.note(g, ch, time, key + ch.pitch, Math.min(1, vel * gainMul), dur) : undefined;
+    if (def.ext) return BF.community.note(g, ch, time, key + ch.pitch, Math.min(1, vel * gainMul), dur, preview ? 'preview' : 'main', params);
     let out;
     if (preview) {
       // preview: channel volume/pan via a throwaway strip straight into the insert's preview input
@@ -205,6 +207,7 @@
     // notes stop costing anything (before, every note ever played stayed in the graph and long songs rendered slowly)
     const ctx = g.ctx;
     const ng = ctx.createGain();
+    if (gainMul !== 1) ng.gain.value = gainMul;
     ng.connect(out);
     const made = [];
     const origOsc = ctx.createOscillator, origBuf = ctx.createBufferSource, origCs = ctx.createConstantSource;

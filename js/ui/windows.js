@@ -1,5 +1,8 @@
 /* windows.js: floating windows inside the workspace. Drag by the title bar, resize from the corner,
- * click to bring to front, close with ×. Positions are remembered per viewer (localStorage). */
+ * click to bring to front, close with ×. Positions are remembered per viewer (localStorage).
+ * ⧉ pops a window out into a real window of its own (Electron: a native window; browser: a pop-up) that can go on
+ * another screen. It is the same page (window.open of about:blank), so the panel's DOM simply moves there and keeps
+ * working; the app's styles are copied in, keys are passed on to the shortcuts. Closing it docks the panel back. */
 (function () {
   'use strict';
   const BF = window.BF;
@@ -30,12 +33,17 @@
     title.textContent = opts.title;
     const tools = document.createElement('div');
     tools.className = 'win-tools';
+    const pop = document.createElement('button');
+    pop.className = 'win-pop';
+    pop.textContent = '⧉';
+    pop.title = 'Open in its own window (for example on a second screen)';
+    pop.setAttribute('aria-label', `Open ${opts.title} in its own window`);
     const close = document.createElement('button');
     close.className = 'win-close';
     close.textContent = '×';
     close.title = `Close${opts.hotkey ? ` (${opts.hotkey})` : ''}`;
     close.setAttribute('aria-label', `Close ${opts.title}`);
-    bar.append(title, tools, close);
+    bar.append(title, tools, pop, close);
     const body = document.createElement('div');
     body.className = 'win-body';
     body.append(opts.body);
@@ -70,6 +78,7 @@
 
     el.addEventListener('pointerdown', () => W.front(opts.id), true);
     close.addEventListener('click', () => W.toggle(opts.id, false));
+    pop.addEventListener('click', () => W.popOut(opts.id));
     const drag = (e, mode) => {
       if (e.button !== 0 || e.target.closest('button,select,input')) return;
       e.preventDefault();
@@ -107,9 +116,75 @@
     W.focused = id;
   };
 
+  // ---------- popped-out windows ----------
+  let lastDoc = null; // the document the user last worked in (menus open there)
+  W.activeDoc = () => (lastDoc && lastDoc.defaultView && !lastDoc.defaultView.closed ? lastDoc : document);
+  document.addEventListener('pointerdown', () => { lastDoc = document; }, true);
+
+  W.popOut = function (id) {
+    const w = W.all.get(id);
+    if (!w) return;
+    if (w.popup && !w.popup.closed) { w.popup.focus(); return; }
+    const b = w.el.getBoundingClientRect();
+    const sx = (window.screenX || 0) + b.left + 40, sy = (window.screenY || 0) + b.top + 40;
+    const nw = window.open('', `bf-${id}`, `popup=yes,width=${Math.round(Math.max(420, b.width))},height=${Math.round(Math.max(260, b.height))},left=${Math.round(sx)},top=${Math.round(sy)}`);
+    if (!nw) { BF.ui.toast('The window was blocked. Allow pop-ups for BeatForge and try again.', true); return; }
+    const d = nw.document;
+    d.open(); d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>'); d.close();
+    d.title = `${w.title.textContent} - BeatForge`;
+    // same look: the app's stylesheets, theme attributes and classes
+    document.querySelectorAll('link[rel="stylesheet"], style').forEach((n) => {
+      const c = d.importNode(n, true);
+      if (c.tagName === 'LINK') c.href = n.href; // absolute
+      d.head.append(c);
+    });
+    [...document.documentElement.attributes].forEach((a) => d.documentElement.setAttribute(a.name, a.value));
+    d.body.className = `${document.body.className} win-popped`;
+    const host = d.createElement('div');
+    host.className = 'win popped';
+    if (w.tools.childElementCount) { const bar = d.createElement('header'); bar.className = 'win-bar'; bar.append(w.tools); host.append(bar); } // title-bar tools go along
+    host.append(w.body); // moves the live panel (with its listeners) into the new window
+    d.body.append(host);
+    w.popup = nw;
+    w.open = true;
+    w.el.hidden = true;
+    const keys = (e) => { lastDoc = d; if (BF.keys.dispatch) BF.keys.dispatch(e); };
+    nw.addEventListener('keydown', keys);
+    nw.addEventListener('pointerdown', () => { lastDoc = d; W.focused = id; }, true);
+    nw.addEventListener('pointerup', (e) => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: e.pointerId })));
+    nw.addEventListener('resize', () => { if (w.onShow) w.onShow(); });
+    nw.addEventListener('pagehide', () => dock(id)); // closed by the user (or the app is closing)
+    if (w.onShow) setTimeout(() => w.onShow(), 30);
+    persist();
+    BF.emit('windows');
+  };
+
+  function dock(id) {
+    const w = W.all.get(id);
+    if (!w || !w.popup) return;
+    const nw = w.popup;
+    w.popup = null;
+    w.el.insertBefore(w.body, w.el.querySelector('.win-grip'));
+    w.bar.insertBefore(w.tools, w.bar.querySelector('.win-pop'));
+    try { if (!nw.closed) nw.close(); } catch { /* gone */ }
+    w.open = false; // closing the separate window closes the panel; F-key / menu opens it in the app again
+    w.el.hidden = true;
+    if (w.onHide) w.onHide();
+    persist();
+    BF.emit('windows');
+  }
+  W.dock = dock;
+  W.isPopped = (id) => !!(W.all.get(id) && W.all.get(id).popup && !W.all.get(id).popup.closed);
+  window.addEventListener('pagehide', () => W.all.forEach((w) => { try { if (w.popup && !w.popup.closed) w.popup.close(); } catch { /* */ } }));
+
   W.toggle = function (id, force) {
     const w = W.all.get(id);
     if (!w) return;
+    if (w.popup && !w.popup.closed) { // popped out: the hotkey brings it to the front, or closes it
+      if (force === false || (force === undefined && W.focused === id)) dock(id);
+      else { w.popup.focus(); W.focused = id; if (w.onShow) w.onShow(); }
+      return;
+    }
     const open = force ?? (w.el.hidden || W.focused !== id);
     w.open = open;
     w.el.hidden = !open;
@@ -118,12 +193,12 @@
     BF.emit('windows');
   };
 
-  W.isOpen = (id) => !!W.all.get(id) && !W.all.get(id).el.hidden;
+  W.isOpen = (id) => !!W.all.get(id) && (!W.all.get(id).el.hidden || W.isPopped(id));
 
   W.resetLayout = function () {
     try { localStorage.removeItem(KEY); } catch { /* */ }
     location.reload();
   };
 
-  window.addEventListener('resize', () => W.all.forEach((w) => { w.place(); if (w.onShow && !w.el.hidden) w.onShow(); }));
+  window.addEventListener('resize', () => W.all.forEach((w) => { w.place(); if (w.onShow && !w.el.hidden && !w.popup) w.onShow(); }));
 })();

@@ -256,7 +256,8 @@
   }
 
   // ---------- keyboard shortcuts (see js/shortcuts.js) ----------
-  window.addEventListener('keydown', (e) => BF.keys.handle(e, { newProject, openFile, toggleRec, showHelp }));
+  BF.keys.dispatch = (e) => BF.keys.handle(e, { newProject, openFile, toggleRec, showHelp }); // also used by popped-out windows
+  window.addEventListener('keydown', (e) => BF.keys.dispatch(e));
   // stop Space from also "clicking" a focused button
   window.addEventListener('keyup', (e) => { if (e.code === 'Space' && document.activeElement?.tagName === 'BUTTON') e.preventDefault(); }, true);
 

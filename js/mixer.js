@@ -1,8 +1,8 @@
 /* mixer.js: two tabs.
  *  - Inserts: Master + 32 inserts. Each strip: meter, fader, pan, mute, solo. The selected insert's effect slots
  *    (up to 10, processed top to bottom) are shown on the right: add, open, bypass, reorder, remove.
- *  - Patterns & audio: one fader + mute per pattern (scales its notes' velocity, 0-100%) and per audio file
- *    (gain for every clip that plays it, 0-200%), to balance parts of the song without touching the inserts. */
+ *  - Patterns & audio: one fader + mute per pattern and per audio file (0-400%, for every clip of it), and for the
+ *    clips selected in the playlist (only those clips), to balance parts of the song without touching the inserts. */
 (function () {
   'use strict';
   const BF = window.BF;
@@ -36,6 +36,10 @@
   };
 
   // ---------- Patterns & audio tab ----------
+  // fader position 0..1 <-> gain 0..4: 100% sits at 3/4 of the travel, the top quarter boosts up to 400% (+12 dB)
+  const posToGain = (x) => (x <= 0.75 ? (x / 0.75) ** 2 : 4 ** ((x - 0.75) / 0.25));
+  const gainToPos = (g) => (g <= 1 ? Math.sqrt(Math.max(0, g)) * 0.75 : 0.75 + 0.25 * Math.log(Math.min(4, g)) / Math.log(4));
+  const pctText = (g) => (g > 1.004 ? `+${(20 * Math.log10(g)).toFixed(1)} dB` : `${Math.round(g * 100)}%`);
   function srcStrip({ key, label, color, vol, max, mute, title, set, toggle, cls = '', done = null }) {
     const el = document.createElement('div');
     el.className = `mx-strip mx-srcstrip${cls ? ` ${cls}` : ''}`;
@@ -45,16 +49,17 @@
     const name = document.createElement('div'); name.className = 'mx-name mx-srcname'; name.textContent = label; name.title = label;
     const body = document.createElement('div'); body.className = 'mx-body';
     const fader = document.createElement('input');
-    fader.type = 'range'; fader.min = 0; fader.max = max; fader.value = Math.round(vol * 100);
+    fader.type = 'range'; fader.min = 0; fader.max = 1000; fader.value = Math.round(gainToPos(vol) * 1000);
     fader.className = 'mx-fader';
     fader.setAttribute('aria-label', `${label} volume`);
-    fader.setAttribute('aria-valuetext', `${Math.round(vol * 100)}%`);
-    fader.title = 'Volume (double-click: 100%)';
-    fader.addEventListener('input', () => set(fader.value / 100, `src-${key}`));
+    fader.setAttribute('aria-valuetext', pctText(vol));
+    fader.title = 'Volume: 100% at three quarters, the top boosts up to +12 dB (double-click: 100%)';
+    fader.addEventListener('input', () => { let g = posToGain(fader.value / 1000); if (Math.abs(g - 1) < 0.02) g = 1; set(Math.round(g * 1000) / 1000, `src-${key}`); });
     fader.addEventListener('dblclick', () => set(1, null));
     if (done) fader.addEventListener('change', done); // released: let the playlist show the new volume
     body.append(fader);
-    const v = document.createElement('div'); v.className = 'mx-vol'; v.textContent = `${Math.round(vol * 100)}%`;
+    const v = document.createElement('div'); v.className = 'mx-vol'; v.textContent = pctText(vol);
+    const tick = document.createElement('i'); tick.className = 'mx-unity'; tick.title = '100%'; body.append(tick);
     const ms = document.createElement('div'); ms.className = 'ms';
     const m = document.createElement('button');
     m.className = 'mute'; m.textContent = 'M'; m.title = 'Mute';
@@ -75,7 +80,7 @@
       const label = pt ? pt.name : (p.samples[c.sampleId]?.name || 'Audio');
       const field = c.kind === 'pattern' ? 'vol' : 'gain';
       srcEl.append(srcStrip({
-        key: `c:${c.id}`, label: `${label} · ${bar(c)}`, color: pt ? pt.color : '#8fd3ff', vol: c[field] ?? 1, max: c.kind === 'pattern' ? 100 : 200, mute: c.muted, title: 'Selected clip', cls: 'clip', done: () => BF.emit('clips'),
+        key: `c:${c.id}`, label: `${label} · ${bar(c)}`, color: pt ? pt.color : '#8fd3ff', vol: c[field] ?? 1, max: 400, mute: c.muted, title: 'Selected clip', cls: 'clip', done: () => BF.emit('clips'),
         set: (v, k) => BF.commit((q) => { const x = q.clips.find((y) => y.id === c.id); if (!x) return; if (field === 'vol' && Math.abs(v - 1) < 0.004) delete x.vol; else x[field] = v; }, k, 'mix'),
         toggle: () => BF.commit((q) => { const x = q.clips.find((y) => y.id === c.id); if (x) { if (x.muted) delete x.muted; else x.muted = true; } }, null, 'clips'),
       }));
@@ -83,7 +88,7 @@
     if (sel.length) { const d = document.createElement('div'); d.className = 'mx-srcsep'; d.title = 'Left: only the selected clips. Right: every clip of a pattern / audio file.'; srcEl.append(d); }
     else { const h = document.createElement('div'); h.className = 'mx-srchint'; h.textContent = 'Tip: select clips in the playlist to change only those clips here.'; srcEl.append(h); }
     p.patterns.forEach((pt) => srcEl.append(srcStrip({
-      key: `p:${pt.id}`, label: pt.name, color: pt.color, vol: pt.vol ?? 1, max: 100, mute: pt.mute, title: 'Pattern',
+      key: `p:${pt.id}`, label: pt.name, color: pt.color, vol: pt.vol ?? 1, max: 400, mute: pt.mute, title: 'Pattern',
       set: (v, k) => BF.commit((q) => { const x = q.patterns.find((y) => y.id === pt.id); if (x) { if (v === 1) delete x.vol; else x.vol = v; } }, k, 'mix'),
       toggle: () => BF.commit((q) => { const x = q.patterns.find((y) => y.id === pt.id); if (x) { if (x.mute) delete x.mute; else x.mute = true; } }),
     })));
@@ -93,7 +98,7 @@
     const mixOf = (q, id) => (q.audioMix = q.audioMix || {}, q.audioMix[id] = q.audioMix[id] || { vol: 1 });
     const tidy = (q, id) => { const m = q.audioMix[id]; if (m && (m.vol ?? 1) === 1 && !m.mute) delete q.audioMix[id]; };
     ids.forEach((id) => { const am = (p.audioMix || {})[id] || {}; srcEl.append(srcStrip({
-      key: `a:${id}`, label: p.samples[id].name, color: '#8fd3ff', vol: am.vol ?? 1, max: 200, mute: am.mute, title: 'Audio',
+      key: `a:${id}`, label: p.samples[id].name, color: '#8fd3ff', vol: am.vol ?? 1, max: 400, mute: am.mute, title: 'Audio',
       set: (v, k) => BF.commit((q) => { mixOf(q, id).vol = v; tidy(q, id); }, k, 'mix'),
       toggle: () => BF.commit((q) => { const m = mixOf(q, id); if (m.mute) delete m.mute; else m.mute = true; tidy(q, id); }),
     })); });
@@ -290,8 +295,8 @@
         const [k, id] = [el.dataset.key.slice(0, 1), el.dataset.key.slice(2)];
         const c = k === 'c' ? p.clips.find((x) => x.id === id) : null;
         const v = k === 'p' ? (p.patterns.find((x) => x.id === id)?.vol ?? 1) : k === 'c' ? ((c && (c.kind === 'pattern' ? c.vol : c.gain)) ?? 1) : (p.audioMix?.[id]?.vol ?? 1);
-        el.querySelector('.mx-vol').textContent = `${Math.round(v * 100)}%`;
-        el.querySelector('.mx-fader').setAttribute('aria-valuetext', `${Math.round(v * 100)}%`);
+        el.querySelector('.mx-vol').textContent = pctText(v);
+        el.querySelector('.mx-fader').setAttribute('aria-valuetext', pctText(v));
       });
       return;
     }

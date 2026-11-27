@@ -245,7 +245,8 @@
   C.render = function () {
     if (!root) return;
     renderHead();
-    const focusedStep = document.activeElement?.classList.contains('step') ? [document.activeElement.closest('.rack-row')?.dataset.id, document.activeElement.dataset.i] : null;
+    const ae = root.ownerDocument.activeElement; // the rack may be in a popped-out window
+    const focusedStep = ae?.classList.contains('step') ? [ae.closest('.rack-row')?.dataset.id, ae.dataset.i] : null;
     rowsEl.textContent = '';
     const grp = C.group && BF.project.channels.some((c) => c.group === C.group) ? C.group : (C.group = '');
     BF.project.channels.filter((ch) => !grp || ch.group === grp).forEach((ch) => { const r = row(ch); if (ch.zip) r.classList.add('zipped'); rowsEl.append(r); });

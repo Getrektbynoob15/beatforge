@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const SHELL_API = 8; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part, 5: VST3 plugin host, 6: VST effects + knob automation, 7: VST2 + Mac plugin host, 8: plugin host fix for JUCE plugins + load timeout)
+const SHELL_API = 9; // bump when the desktop shell gains features an update needs (2: plugin store, 3: live sessions + invite links, 4: session relay + self-updating desktop part, 5: VST3 plugin host, 6: VST effects + knob automation, 7: VST2 + Mac plugin host, 8: plugin host fix for JUCE plugins + load timeout, 9: pop-out windows)
 const REPO = 'Getrektbynoob15/beatforge';
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEVeewGzZ2Xthyx2YqibvO8vpwJie7J22oq9C1sjeQcM=
@@ -84,7 +84,7 @@ function createWindow() {
     backgroundColor: '#0d0f13',
     title: 'BeatForge',
     icon: path.join(__dirname, 'icon.png'),
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, preload: path.join(__dirname, 'preload.js') },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') },
   });
   win.loadFile(path.join(loaded.dir, 'index.html'));
   if (loaded.updated) {
@@ -93,9 +93,20 @@ function createWindow() {
     win.webContents.once('did-fail-load', () => fallBack('failed to load'));
     win.webContents.once('render-process-gone', () => fallBack('crashed'));
   }
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    // a panel popped out into its own window (windows.js): an empty page of our own, no preload, no navigation
+    if (url === 'about:blank' && /^bf-[a-z]{1,20}$/.test(frameName || '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: {
+        parent: win, autoHideMenuBar: true, backgroundColor: '#0d0f13', icon: path.join(__dirname, 'icon.png'), minWidth: 320, minHeight: 200,
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false },
+      } };
+    }
     if (/^https:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (child) => {
+    child.webContents.on('will-navigate', (e) => e.preventDefault());
+    child.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   });
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file://')) e.preventDefault(); });
   win.on('close', onClose);
