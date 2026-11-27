@@ -11,7 +11,7 @@
     name: 'Drum Kit',
     kind: 'instrument',
     params: [
-      { id: 'sound', name: 'Sound', type: 'select', default: 'kick', options: [['kick', 'Kick'], ['snare', 'Snare'], ['clap', 'Clap'], ['hihat', 'Closed hat'], ['openhat', 'Open hat'], ['tom', 'Tom'], ['rim', 'Rim'], ['cowbell', 'Cowbell'], ['crash', 'Crash'], ['perc', 'Perc'], ['bass808', '808']] },
+      { id: 'sound', name: 'Sound', type: 'select', default: 'kick', options: [['kick', 'Kick'], ['hardkick', 'Hard kick'], ['snare', 'Snare'], ['clap', 'Clap'], ['hihat', 'Closed hat'], ['openhat', 'Open hat'], ['tom', 'Tom'], ['rim', 'Rim'], ['cowbell', 'Cowbell'], ['crash', 'Crash'], ['perc', 'Perc'], ['bass808', '808']] },
       { id: 'tune', name: 'Tune', type: 'knob', min: -24, max: 24, default: 0, step: 1, unit: ' st' },
       { id: 'decay', name: 'Decay', type: 'knob', min: 0.25, max: 3, default: 1, fmt: (v) => `${v.toFixed(2)}×` },
       { id: 'tone', name: 'Tone', type: 'knob', min: 200, max: 20000, default: 20000, curve: 'log', fmt: U.hz },

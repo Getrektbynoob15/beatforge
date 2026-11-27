@@ -54,8 +54,38 @@
     noiseSrc(ctx, t, e.end).connect(f).connect(e.g).connect(out);
   }
 
+  // soft saturation curve for the hard kick's tail (tanh, shared)
+  let SAT = null;
+  const satCurve = () => SAT || (SAT = Float32Array.from({ length: 2048 }, (_, i) => { const x = (i / 1023.5) - 1; return Math.tanh(4 * x) / Math.tanh(4); }));
+
   const VOICES = {
     kick(ctx, out, t, p, k) { tone(ctx, out, t, 'sine', 160 * p, 45 * p, 0.11, 1, 0.42 * k); },
+    // hardstyle / hardcore kick: click + punch, then a long tuned, saturated tail (tune it to the song's key with Tune;
+    // the default tail note is about G1)
+    hardkick(ctx, out, t, p, k) {
+      const f0 = 49 * p, tail = 0.34 * k, end = t + 0.1 + tail;
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(480 * p, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * 1.8, t + 0.022);
+      o.frequency.exponentialRampToValueAtTime(f0, t + 0.08);
+      o.frequency.linearRampToValueAtTime(f0 * 0.9, end);
+      const drive = ctx.createGain(); drive.gain.value = 5;
+      const ws = ctx.createWaveShaper(); ws.curve = satCurve(); ws.oversample = '2x';
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.8;
+      lp.frequency.setValueAtTime(12000, t); lp.frequency.exponentialRampToValueAtTime(2200, t + 0.12); lp.frequency.exponentialRampToValueAtTime(700, end);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.95, t + 0.0015);
+      g.gain.setValueAtTime(0.95, t + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.62, t + 0.1);
+      g.gain.setValueAtTime(0.62, t + 0.1 + tail * 0.55);
+      g.gain.exponentialRampToValueAtTime(0.001, end);
+      g.gain.linearRampToValueAtTime(0, end + 0.005);
+      o.connect(drive).connect(ws).connect(lp).connect(g).connect(out);
+      o.start(t); o.stop(end + 0.01);
+      filtered(ctx, out, t, 'highpass', 2500, 0.7, 0.55, 0.012); // the click on top
+    },
     snare(ctx, out, t, p, k) {
       filtered(ctx, out, t, 'highpass', 1200 * p, 0.7, 0.7, 0.18 * k);
       tone(ctx, out, t, 'triangle', 220 * p, 160 * p, 0.08, 0.5, 0.09 * k);

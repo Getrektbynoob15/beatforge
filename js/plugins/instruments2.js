@@ -161,6 +161,7 @@
     'Trap kit': { kick: { tune: -2, decay: 1.3 }, bass808: { tune: 0, decay: 2.4 }, snare: { tune: 3, decay: 0.8, tone: 12000 }, clap: { decay: 1.2 }, hihat: { tune: 4, decay: 0.7 }, openhat: { tune: 3, decay: 0.8 }, rim: { tune: 2 }, perc: { tune: 5 } },
     'House kit': { kick: { tune: -1, decay: 1.1 }, clap: { decay: 1.4, tone: 9000 }, hihat: { tune: 1, decay: 1 }, openhat: { decay: 1.3 }, snare: { decay: 1 }, cowbell: {}, rim: {}, tom: { tune: -3 } },
     'Lo-fi kit': { kick: { tone: 2500, decay: 0.9 }, snare: { tone: 3500, decay: 1.2 }, hihat: { tone: 4500, decay: 1.4 }, openhat: { tone: 4500 }, clap: { tone: 3000 }, rim: { tone: 4000 }, perc: { tone: 3000, tune: -5 } },
+    'Hardstyle kit': { hardkick: { tune: 0, decay: 1 }, kick: { tune: -1, decay: 1 }, clap: { decay: 1.5, tone: 8000 }, snare: { tune: 2, decay: 1.1 }, hihat: { tune: 2, decay: 0.8 }, openhat: { decay: 1.1 }, crash: { decay: 1.6 }, perc: { tune: 3 } },
     'Rock kit': { kick: { tune: 1, decay: 0.8 }, snare: { tune: -2, decay: 1.6 }, hihat: { decay: 1.2 }, openhat: { decay: 1.1 }, crash: { decay: 1.4 }, tom: { tune: 0, decay: 1.4 } },
   };
 })();
