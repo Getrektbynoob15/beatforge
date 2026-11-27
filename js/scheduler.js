@@ -110,6 +110,8 @@
 
   BF.bookPattern = (...a) => bookPattern(...a);
   function bookPattern(g, p, pt, atBeat, from, to, cutBeat, beatTime, secPerBeat, auto = false) {
+    if (pt.mute) return;
+    const pv = pt.vol ?? 1; // pattern volume (mixer "Patterns & audio" tab): scales every note's velocity
     const swing = p.swing * (1 / 4) * (1 / 3); // max swing pushes off-beat 16ths by 1/3 of a step
     for (const ch of p.channels) {
       if (ch.mute) continue;
@@ -119,7 +121,7 @@
           if (!steps[i]) continue;
           const beat = atBeat + i / 4 + (i % 2 ? swing : 0);
           if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
-          BF.audio.note(g, ch, beatTime(beat), 60, 0.8, secPerBeat / 4, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
+          BF.audio.note(g, ch, beatTime(beat), 60, 0.8 * pv, secPerBeat / 4, false, auto ? BF.auto.noteParams(p, ch, beat) : null);
         }
       }
       let notes = pt.notes[ch.id];
@@ -131,7 +133,7 @@
           const beat = atBeat + n.start / 4 + (Math.round(n.start) === n.start && n.start % 2 ? swing : 0);
           if (beat < from - 1e-9 || beat >= to - 1e-9 || beat >= cutBeat - 1e-9) continue;
           const dur = beatTime(beat + n.len / 4) - beatTime(beat); // follows tempo changes
-          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel, dur, false, auto ? BF.auto.noteParams(p, ch, beat) : null, noteExtras(n, notes, slides, atBeat, beatTime, secPerBeat, dur));
+          BF.audio.note(g, ch, beatTime(beat), n.key, n.vel * pv, dur, false, auto ? BF.auto.noteParams(p, ch, beat) : null, noteExtras(n, notes, slides, atBeat, beatTime, secPerBeat, dur));
         }
       }
     }

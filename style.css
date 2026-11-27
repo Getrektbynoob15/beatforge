@@ -185,7 +185,17 @@ input[type=range] { accent-color: var(--accent); }
 .clip-panel .field input { width: 76px; }
 
 /* ---------- mixer ---------- */
-.mx { display: flex; height: 100%; }
+.mx-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.mx-tabs { display: flex; gap: 4px; padding: 6px 6px 0; flex: none; }
+.mx-tab { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.mx-tab:hover { color: var(--text); }
+.mx-tab.on { color: var(--text); border-color: var(--accent); background: #1f2a33; }
+.mx-wrap > [hidden] { display: none !important; }
+.mx { display: flex; flex: 1; min-height: 0; }
+.mx-src { flex: 1; min-height: 0; }
+.mx-srcstrip { flex-basis: 84px; border-top: 3px solid var(--c, var(--line)); }
+.mx-srcname { cursor: default; font-weight: 600; }
+.mx-src .empty { color: var(--muted); padding: 12px; }
 .mx-strips { display: flex; gap: 3px; padding: 6px; overflow-x: auto; flex: 1; min-width: 0; }
 .mx-strip { flex: 0 0 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 3px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; }
 .mx-strip.master { flex-basis: 76px; border-color: #3b4558; margin-right: 6px; }

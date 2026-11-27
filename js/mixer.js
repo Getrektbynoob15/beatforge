@@ -1,22 +1,89 @@
-/* mixer.js: Master + 32 inserts. Each strip: meter, fader, pan, mute, solo. The selected insert's effect slots
- * (up to 10, processed top to bottom) are shown on the right: add, open, bypass, reorder, remove. */
+/* mixer.js: two tabs.
+ *  - Inserts: Master + 32 inserts. Each strip: meter, fader, pan, mute, solo. The selected insert's effect slots
+ *    (up to 10, processed top to bottom) are shown on the right: add, open, bypass, reorder, remove.
+ *  - Patterns & audio: one fader + mute per pattern (scales its notes' velocity, 0-100%) and per audio file
+ *    (gain for every clip that plays it, 0-200%), to balance parts of the song without touching the inserts. */
 (function () {
   'use strict';
   const BF = window.BF;
-  const M = (BF.mixer = { selected: 0 });
-  let root, stripsEl, slotsEl, meters = [];
+  const M = (BF.mixer = { selected: 0, tab: 'inserts' });
+  let root, stripsEl, slotsEl, meters = [], insertsEl, srcEl, tabBtns = {};
   const MAX_FX = 10;
 
   M.build = function () {
     root = document.createElement('div');
-    root.className = 'mx';
+    root.className = 'mx-wrap';
+    const tabs = document.createElement('div');
+    tabs.className = 'mx-tabs'; tabs.setAttribute('role', 'tablist');
+    [['inserts', 'Inserts'], ['sources', 'Patterns & audio']].forEach(([id, label]) => {
+      const b = document.createElement('button');
+      b.className = 'mx-tab'; b.textContent = label; b.setAttribute('role', 'tab');
+      b.addEventListener('click', () => { M.tab = id; try { localStorage.setItem('bf-mixer-tab', id); } catch { /* */ } M.render(); });
+      tabBtns[id] = b; tabs.append(b);
+    });
+    try { const t = localStorage.getItem('bf-mixer-tab'); if (t === 'sources' || t === 'inserts') M.tab = t; } catch { /* */ }
+    insertsEl = document.createElement('div');
+    insertsEl.className = 'mx';
     stripsEl = document.createElement('div');
     stripsEl.className = 'mx-strips';
     slotsEl = document.createElement('div');
     slotsEl.className = 'mx-slots';
-    root.append(stripsEl, slotsEl);
+    insertsEl.append(stripsEl, slotsEl);
+    srcEl = document.createElement('div');
+    srcEl.className = 'mx-strips mx-src';
+    root.append(tabs, insertsEl, srcEl);
     return root;
   };
+
+  // ---------- Patterns & audio tab ----------
+  function srcStrip({ key, label, color, vol, max, mute, title, set, toggle }) {
+    const el = document.createElement('div');
+    el.className = 'mx-strip mx-srcstrip';
+    el.dataset.key = key;
+    el.style.setProperty('--c', color);
+    const kind = document.createElement('div'); kind.className = 'mx-num'; kind.textContent = title;
+    const name = document.createElement('div'); name.className = 'mx-name mx-srcname'; name.textContent = label; name.title = label;
+    const body = document.createElement('div'); body.className = 'mx-body';
+    const fader = document.createElement('input');
+    fader.type = 'range'; fader.min = 0; fader.max = max; fader.value = Math.round(vol * 100);
+    fader.className = 'mx-fader';
+    fader.setAttribute('aria-label', `${label} volume`);
+    fader.setAttribute('aria-valuetext', `${Math.round(vol * 100)}%`);
+    fader.title = 'Volume (double-click: 100%)';
+    fader.addEventListener('input', () => set(fader.value / 100, `src-${key}`));
+    fader.addEventListener('dblclick', () => set(1, null));
+    body.append(fader);
+    const v = document.createElement('div'); v.className = 'mx-vol'; v.textContent = `${Math.round(vol * 100)}%`;
+    const ms = document.createElement('div'); ms.className = 'ms';
+    const m = document.createElement('button');
+    m.className = 'mute'; m.textContent = 'M'; m.title = 'Mute';
+    m.setAttribute('aria-pressed', String(!!mute)); m.setAttribute('aria-label', `Mute ${label}`);
+    m.addEventListener('click', toggle);
+    ms.append(m);
+    el.append(kind, name, body, v, ms);
+    return el;
+  }
+  function sources() {
+    const p = BF.project, sl = srcEl.scrollLeft;
+    srcEl.textContent = '';
+    p.patterns.forEach((pt) => srcEl.append(srcStrip({
+      key: `p:${pt.id}`, label: pt.name, color: pt.color, vol: pt.vol ?? 1, max: 100, mute: pt.mute, title: 'Pattern',
+      set: (v, k) => BF.commit((q) => { const x = q.patterns.find((y) => y.id === pt.id); if (x) { if (v === 1) delete x.vol; else x.vol = v; } }, k, 'mix'),
+      toggle: () => BF.commit((q) => { const x = q.patterns.find((y) => y.id === pt.id); if (x) { if (x.mute) delete x.mute; else x.mute = true; } }),
+    })));
+    // audio files used in the playlist (or imported), in order of first use
+    const used = [...new Set(p.clips.filter((c) => c.kind === 'audio').sort((a, b) => a.start - b.start).flatMap((c) => [c.sampleId, ...(c.takes || [])]))];
+    const ids = [...used, ...Object.keys(p.samples).filter((id) => !used.includes(id))].filter((id) => p.samples[id]);
+    const mixOf = (q, id) => (q.audioMix = q.audioMix || {}, q.audioMix[id] = q.audioMix[id] || { vol: 1 });
+    const tidy = (q, id) => { const m = q.audioMix[id]; if (m && (m.vol ?? 1) === 1 && !m.mute) delete q.audioMix[id]; };
+    ids.forEach((id) => { const am = (p.audioMix || {})[id] || {}; srcEl.append(srcStrip({
+      key: `a:${id}`, label: p.samples[id].name, color: '#8fd3ff', vol: am.vol ?? 1, max: 200, mute: am.mute, title: 'Audio',
+      set: (v, k) => BF.commit((q) => { mixOf(q, id).vol = v; tidy(q, id); }, k, 'mix'),
+      toggle: () => BF.commit((q) => { const m = mixOf(q, id); if (m.mute) delete m.mute; else m.mute = true; tidy(q, id); }),
+    })); });
+    if (!srcEl.children.length) { const e = document.createElement('p'); e.className = 'empty'; e.textContent = 'No patterns or audio yet.'; srcEl.append(e); }
+    srcEl.scrollLeft = sl;
+  }
 
   function strip(i) {
     const p = BF.project, m = p.mixer[i];
@@ -185,6 +252,10 @@
 
   M.render = function () {
     if (!root) return;
+    Object.entries(tabBtns).forEach(([id, b]) => { b.setAttribute('aria-selected', String(M.tab === id)); b.classList.toggle('on', M.tab === id); });
+    insertsEl.hidden = M.tab !== 'inserts';
+    srcEl.hidden = M.tab !== 'sources';
+    if (M.tab === 'sources') { sources(); return; }
     const sl = stripsEl.scrollLeft;
     stripsEl.textContent = '';
     meters = [];
@@ -197,6 +268,16 @@
   /** Update fader/pan labels after a 'mix' change without rebuilding (so drags continue). */
   M.syncLabels = function () {
     if (!root) return;
+    if (M.tab === 'sources') { // labels only, so a fader drag continues
+      const p = BF.project;
+      srcEl.querySelectorAll('.mx-srcstrip').forEach((el) => {
+        const [k, id] = [el.dataset.key.slice(0, 1), el.dataset.key.slice(2)];
+        const v = k === 'p' ? (p.patterns.find((x) => x.id === id)?.vol ?? 1) : (p.audioMix?.[id]?.vol ?? 1);
+        el.querySelector('.mx-vol').textContent = `${Math.round(v * 100)}%`;
+        el.querySelector('.mx-fader').setAttribute('aria-valuetext', `${Math.round(v * 100)}%`);
+      });
+      return;
+    }
     stripsEl.querySelectorAll('.mx-strip').forEach((el, i) => {
       const m = BF.project.mixer[i];
       el.querySelector('.mx-vol').textContent = `${Math.round(m.volume * 100)}%`;

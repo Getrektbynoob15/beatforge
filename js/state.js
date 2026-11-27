@@ -146,6 +146,15 @@
         if (s && typeof s.base64 === 'string' && s.base64.length) p.samples[id] = { name: str(s.name, 'audio', 120), mime: str(s.mime, 'audio/wav'), base64: s.base64 };
       }
     }
+    // volume / mute per audio file (mixer "Patterns & audio" tab), for every clip that plays it
+    p.audioMix = {};
+    if (raw.audioMix && typeof raw.audioMix === 'object') {
+      for (const [id, m] of Object.entries(raw.audioMix)) {
+        if (!p.samples[id] || !m || typeof m !== 'object') continue;
+        const vol = clamp(m.vol, 0, 2, 1), mute = m.mute === true;
+        if (vol !== 1 || mute) p.audioMix[id] = { vol, ...(mute ? { mute: true } : {}) };
+      }
+    }
     // community plugins this computer does not have: keep them as silent placeholders
     const ensureExt = (id, kind) => { if (typeof id === 'string' && /^ext:[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(id) && !BF.plugins.has(id) && BF.community) BF.community.placeholder(id, kind); };
     (Array.isArray(raw.channels) ? raw.channels : []).forEach((c) => c && ensureExt(c.plugin, 'instrument'));
@@ -191,7 +200,8 @@
           ...(Number.isInteger(n.color) && n.color > 0 && n.color < 16 ? { color: n.color } : {}),
         }));
       }
-      return { id: str(pt.id, BF.uid('p')), name: str(pt.name, `Pattern ${i + 1}`), color: /^#[0-9a-f]{6}$/i.test(pt.color) ? pt.color : BF.PATTERN_COLORS[i % 8], length, steps, notes };
+      return { id: str(pt.id, BF.uid('p')), name: str(pt.name, `Pattern ${i + 1}`), color: /^#[0-9a-f]{6}$/i.test(pt.color) ? pt.color : BF.PATTERN_COLORS[i % 8], length, steps, notes,
+        ...(Number.isFinite(+pt.vol) && +pt.vol !== 1 ? { vol: clamp(pt.vol, 0, 1, 1) } : {}), ...(pt.mute === true ? { mute: true } : {}) };
     });
     if (!p.patterns.length) p.patterns = [BF.newPattern(1)];
     const patIds = new Set(p.patterns.map((x) => x.id));

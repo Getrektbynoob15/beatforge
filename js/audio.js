@@ -319,7 +319,8 @@
     src.playbackRate.value = r.rate;
     const env = ctx.createGain();
     // volume over the clip: gain, fade in / fade out (seconds of clip time) and a tiny declick at both ends
-    const g0 = c.gain ?? 1, fi = c.fadeIn || 0, fo = c.fadeOut || 0, dc = Math.min(A.FADE, len / 2);
+    const am = (BF.project && BF.project.audioMix && BF.project.audioMix[c.sampleId]) || null; // per-file volume / mute
+    const g0 = (c.gain ?? 1) * (am ? (am.mute ? 0 : am.vol ?? 1) : 1), fi = c.fadeIn || 0, fo = c.fadeOut || 0, dc = Math.min(A.FADE, len / 2);
     const vAt = (x) => g0 * (fi > 0 ? Math.min(1, x / fi) : 1) * (fo > 0 ? Math.min(1, Math.max(0, (totalSec - x) / fo)) : 1);
     env.gain.setValueAtTime(0, when);
     const pts = [offsetSec + dc, fi, totalSec - fo, totalSec - dc].filter((x) => x > offsetSec && x < totalSec).sort((a, b) => a - b);
